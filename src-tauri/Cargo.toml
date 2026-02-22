@@ -1,0 +1,33 @@
+[package]
+name = "vaultpad"
+version = "0.1.0"
+description = "VaultPad — encrypted data vault"
+authors = ["Pavel <mr.terks@yandex.ru>"]
+license = "LicenseRef-PolyForm-Noncommercial-1.0.0"
+edition = "2021"
+
+[lib]
+name = "vaultpad_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-opener = "2"
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+aes-gcm = "0.10"
+argon2 = "0.5"
+rand = "0.8"
+uuid = { version = "1", features = ["v4"] }
+rusqlite = { version = "0.31", features = ["bundled"] }
+zeroize = { version = "1", features = ["derive"] }
+chrono = { version = "0.4", features = ["serde"] }
+thiserror = "1"
+tokio = { version = "1", features = ["full"] }
+reqwest = { version = "0.12", features = ["json", "rustls-tls", "blocking"], default-features = false }
+base64 = "0.22"
+keyring = { version = "3", features = ["apple-native"] }
