@@ -25,22 +25,3 @@ pub struct DecryptedProject {
     pub created_at: String,
     pub updated_at: String,
 }
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AppSettings {
-    pub db_path: Option<String>,
-    pub auto_lock_minutes: u32,
-    pub theme: String,
-    pub onboarding_shown: bool,
-}
-
-impl Default for AppSettings {
-    fn default() -> Self {
-        Self {
-            db_path: None,
-            auto_lock_minutes: 5,
-            theme: "system".to_string(),
-            onboarding_shown: false,
-        }
-    }
-}
