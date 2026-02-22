@@ -1,6 +1,6 @@
 [package]
 name = "vaultpad"
-version = "0.1.0"
+version = "0.1.1"
 description = "VaultPad — encrypted data vault"
 authors = ["Pavel <mr.terks@yandex.ru>"]
 license = "LicenseRef-PolyForm-Noncommercial-1.0.0"
