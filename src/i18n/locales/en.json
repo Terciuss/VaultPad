@@ -83,6 +83,7 @@
   "settings.theme.light": "light",
   "settings.theme.dark": "dark",
   "settings.language": "Language",
+  "settings.fontSize": "Font size",
   "settings.autoLock": "Auto-lock after (minutes)",
   "settings.autoLock.1min": "1 minute",
   "settings.autoLock.5min": "5 minutes",

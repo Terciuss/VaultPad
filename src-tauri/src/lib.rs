@@ -93,6 +93,7 @@ pub fn run() {
             commands::projects::create_project,
             commands::projects::update_project,
             commands::projects::delete_project,
+            commands::projects::reorder_projects,
             commands::projects::get_project_password,
             commands::auth::server_login,
             commands::auth::server_register,

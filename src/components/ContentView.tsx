@@ -21,6 +21,7 @@ export function ContentView({ openingProject }: ContentViewProps) {
   const openProject = useAppStore((s) => s.openProject);
   const setOpenProject = useAppStore((s) => s.setOpenProject);
   const masterPassword = useAppStore((s) => s.masterPassword);
+  const fontSize = useAppStore((s) => s.fontSize);
 
   const [content, setContent] = useState("");
   const [dirty, setDirty] = useState(false);
@@ -160,6 +161,7 @@ export function ContentView({ openingProject }: ContentViewProps) {
           value={content}
           onChange={handleContentChange}
           placeholder={t("content.editorPlaceholder")}
+          fontSize={fontSize}
         />
       </div>
 

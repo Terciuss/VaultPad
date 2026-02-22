@@ -24,6 +24,8 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
   const { t, i18n } = useTranslation();
   const tauri = useTauri();
   const { theme, setTheme } = useTheme();
+  const fontSize = useAppStore((s) => s.fontSize);
+  const setFontSize = useAppStore((s) => s.setFontSize);
   const autoLockMinutes = useAppStore((s) => s.autoLockMinutes);
   const setAutoLockMinutes = useAppStore((s) => s.setAutoLockMinutes);
   const dbPath = useAppStore((s) => s.dbPath);
@@ -148,6 +150,26 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
                   {themeLabel(mode)}
                 </button>
               ))}
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              {t("settings.fontSize")}
+            </label>
+            <div className="flex items-center gap-3">
+              <input
+                type="range"
+                min={6}
+                max={24}
+                step={1}
+                value={fontSize}
+                onChange={(e) => setFontSize(Number(e.target.value))}
+                className="flex-1 accent-blue-600"
+              />
+              <span className="text-sm font-mono text-gray-600 dark:text-gray-400 w-10 text-right">
+                {fontSize}px
+              </span>
             </div>
           </div>
 

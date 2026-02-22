@@ -167,6 +167,21 @@ impl StorageProvider for LocalStorage {
         Ok(())
     }
 
+    fn reorder_projects(&self, ids_with_order: &[(String, i32)]) -> Result<(), StorageError> {
+        let conn = self.conn.lock().map_err(|e| StorageError::Database(e.to_string()))?;
+        let tx = conn.unchecked_transaction()
+            .map_err(|e| StorageError::Database(e.to_string()))?;
+        for (id, order) in ids_with_order {
+            tx.execute(
+                "UPDATE projects SET sort_order = ?1 WHERE id = ?2",
+                params![order, id],
+            )
+            .map_err(|e| StorageError::Database(e.to_string()))?;
+        }
+        tx.commit().map_err(|e| StorageError::Database(e.to_string()))?;
+        Ok(())
+    }
+
     fn get_verification_token(&self) -> Result<Option<Vec<u8>>, StorageError> {
         let conn = self.conn.lock().map_err(|e| StorageError::Database(e.to_string()))?;
         match conn.query_row("SELECT token FROM verification WHERE id = 1", [], |row| {

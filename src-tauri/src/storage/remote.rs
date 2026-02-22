@@ -196,6 +196,10 @@ impl StorageProvider for RemoteStorage {
         Ok(())
     }
 
+    fn reorder_projects(&self, _ids_with_order: &[(String, i32)]) -> Result<(), StorageError> {
+        Ok(())
+    }
+
     fn get_verification_token(&self) -> Result<Option<Vec<u8>>, StorageError> {
         Ok(None)
     }

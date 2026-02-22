@@ -200,6 +200,16 @@ export function MainLayout() {
     }
   };
 
+  const handleReorderProjects = useCallback(async (reordered: ProjectListItem[]) => {
+    setProjects(reordered);
+    try {
+      await tauri.reorderProjects(reordered.map((p) => p.id));
+    } catch (e) {
+      console.error("Failed to reorder projects:", e);
+      loadProjects();
+    }
+  }, [tauri, setProjects, loadProjects]);
+
   const handleDeleteProject = async () => {
     if (!deleteTarget) return;
 
@@ -228,6 +238,7 @@ export function MainLayout() {
         onSelectProject={handleSelectProject}
         onEditProject={handleEditProject}
         onDeleteProject={setDeleteTarget}
+        onReorderProjects={handleReorderProjects}
         loadingProjects={loadingProjects}
         openingProjectId={openingProjectId}
       />

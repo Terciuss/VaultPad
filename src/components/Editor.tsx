@@ -8,6 +8,7 @@ interface EditorProps {
   onChange: (value: string) => void;
   readOnly?: boolean;
   placeholder?: string;
+  fontSize?: number;
 }
 
 export function Editor({
@@ -15,6 +16,7 @@ export function Editor({
   onChange,
   readOnly = false,
   placeholder,
+  fontSize,
 }: EditorProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -32,7 +34,8 @@ export function Editor({
       readOnly={readOnly}
       placeholder={placeholder}
       spellCheck={false}
-      className="w-full h-full resize-none bg-transparent text-gray-900 dark:text-gray-100 font-mono text-sm leading-relaxed p-4 outline-none placeholder-gray-400 dark:placeholder-gray-500"
+      style={fontSize ? { fontSize: `${fontSize}px` } : undefined}
+      className="w-full h-full resize-none bg-transparent text-gray-900 dark:text-gray-100 font-mono leading-relaxed p-4 outline-none placeholder-gray-400 dark:placeholder-gray-500"
     />
   );
 }

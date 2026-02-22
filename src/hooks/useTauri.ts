@@ -64,6 +64,9 @@ export function useTauri() {
 
     deleteProject: (id: string) => invoke<void>("delete_project", { id }),
 
+    reorderProjects: (ids: string[]) =>
+      invoke<void>("reorder_projects", { ids }),
+
     getProjectPassword: (id: string) =>
       invoke<string | null>("get_project_password", { id }),
 

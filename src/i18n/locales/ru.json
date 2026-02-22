@@ -83,6 +83,7 @@
   "settings.theme.light": "светлая",
   "settings.theme.dark": "тёмная",
   "settings.language": "Язык",
+  "settings.fontSize": "Размер шрифта",
   "settings.autoLock": "Автоблокировка через (минуты)",
   "settings.autoLock.1min": "1 минута",
   "settings.autoLock.5min": "5 минут",

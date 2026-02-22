@@ -282,6 +282,23 @@ pub fn delete_project(state: State<AppState>, id: String) -> Result<(), String> 
 }
 
 #[tauri::command]
+pub fn reorder_projects(state: State<AppState>, ids: Vec<String>) -> Result<(), String> {
+    let storage = state.storage.lock().map_err(|e| e.to_string())?;
+    let storage = storage.as_ref().ok_or("Database not initialized")?;
+
+    let pairs: Vec<(String, i32)> = ids
+        .into_iter()
+        .enumerate()
+        .map(|(i, id)| (id, i as i32))
+        .collect();
+
+    storage
+        .reorder_projects(&pairs)
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
 pub fn get_project_password(id: String) -> Result<Option<String>, String> {
     Ok(keychain::get(&kc_key(&id)))
 }

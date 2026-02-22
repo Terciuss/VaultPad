@@ -24,6 +24,8 @@ pub trait StorageProvider: Send + Sync {
     fn update_project(&self, project: &Project) -> Result<(), StorageError>;
     fn delete_project(&self, id: &str) -> Result<(), StorageError>;
 
+    fn reorder_projects(&self, ids_with_order: &[(String, i32)]) -> Result<(), StorageError>;
+
     fn get_verification_token(&self) -> Result<Option<Vec<u8>>, StorageError>;
     fn set_verification_token(&self, token: &[u8]) -> Result<(), StorageError>;
 

@@ -45,6 +45,9 @@ interface AppStore {
   hasSavedSession: boolean;
   setHasSavedSession: (v: boolean) => void;
 
+  fontSize: number;
+  setFontSize: (size: number) => void;
+
   hasPinCode: boolean;
   setHasPinCode: (v: boolean) => void;
 
@@ -85,6 +88,15 @@ export const useAppStore = create<AppStore>((set) => ({
   setLocale: (locale) => {
     localStorage.setItem("vaultpad-locale", locale);
     set({ locale });
+  },
+
+  fontSize: (() => {
+    const v = parseInt(localStorage.getItem("vaultpad-font-size") || "", 10);
+    return v >= 6 && v <= 24 ? v : 14;
+  })(),
+  setFontSize: (size) => {
+    localStorage.setItem("vaultpad-font-size", String(size));
+    set({ fontSize: size });
   },
 
   hasSavedSession: false,
