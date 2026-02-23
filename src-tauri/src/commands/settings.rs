@@ -57,9 +57,9 @@ pub fn set_master_password(state: State<AppState>, password: String) -> Result<(
 
     let db_path = state.db_path.lock().map_err(|e| e.to_string())?.clone();
     if let Some(ref path) = db_path {
-        let _ = keychain::save(KC_DB_PATH, path);
+        keychain::save(KC_DB_PATH, path)?;
     }
-    let _ = keychain::save(KC_MASTER_PASSWORD, &password);
+    keychain::save(KC_MASTER_PASSWORD, &password)?;
 
     Ok(())
 }
@@ -89,9 +89,9 @@ pub fn verify_master_password(state: State<AppState>, password: String) -> Resul
 
     let db_path = state.db_path.lock().map_err(|e| e.to_string())?.clone();
     if let Some(ref path) = db_path {
-        let _ = keychain::save(KC_DB_PATH, path);
+        keychain::save(KC_DB_PATH, path)?;
     }
-    let _ = keychain::save(KC_MASTER_PASSWORD, &password);
+    keychain::save(KC_MASTER_PASSWORD, &password)?;
 
     Ok(true)
 }
