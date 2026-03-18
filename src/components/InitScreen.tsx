@@ -12,6 +12,8 @@ export function InitScreen() {
   const tauri = useTauri();
   const setView = useAppStore((s) => s.setView);
   const setDbPath = useAppStore((s) => s.setDbPath);
+  const dbFolder = useAppStore((s) => s.dbFolder);
+  const setDbFolder = useAppStore((s) => s.setDbFolder);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -26,8 +28,11 @@ export function InitScreen() {
 
       const dbPath = `${path}/vaultpad.db`;
       setLoading(true);
-      await tauri.initDatabase(dbPath);
+      await tauri.initNewDatabase(dbPath);
       setDbPath(dbPath);
+      if (!dbFolder) {
+        setDbFolder(path as string);
+      }
       setView("master-password-setup");
     } catch (e) {
       setError(String(e));
@@ -45,8 +50,15 @@ export function InitScreen() {
       if (!path) return;
 
       setLoading(true);
-      await tauri.initDatabase(path as string);
-      setDbPath(path as string);
+      const filePath = path as string;
+      await tauri.initDatabase(filePath);
+      setDbPath(filePath);
+      if (!dbFolder) {
+        const idx = filePath.lastIndexOf("/");
+        if (idx > 0) {
+          setDbFolder(filePath.substring(0, idx));
+        }
+      }
 
       const hasMaster = await tauri.hasMasterPassword();
       setView(hasMaster ? "unlock" : "master-password-setup");

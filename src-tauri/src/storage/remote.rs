@@ -33,6 +33,12 @@ struct UpdateProjectPayload {
     sort_order: i32,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RemoteProjectMeta {
+    pub id: i64,
+    pub updated_at: String,
+}
+
 pub struct RemoteStorage {
     client: Client,
     base_url: String,
@@ -58,6 +64,30 @@ impl RemoteStorage {
 
     fn auth_header(&self) -> String {
         format!("Bearer {}", self.token)
+    }
+
+    pub fn list_projects_meta(&self) -> Result<Vec<RemoteProjectMeta>, StorageError> {
+        let resp = self
+            .client
+            .get(self.url("/projects/meta"))
+            .header("Authorization", self.auth_header())
+            .send()
+            .map_err(req_err)?;
+
+        if !resp.status().is_success() {
+            let text = resp.text().unwrap_or_default();
+            return Err(StorageError::Io(format!("Server error: {}", text)));
+        }
+
+        resp.json().map_err(req_err)
+    }
+
+    pub fn health_check(&self) -> Result<(), StorageError> {
+        let resp = self.client.get(self.url("/health")).send().map_err(req_err)?;
+        if !resp.status().is_success() {
+            return Err(StorageError::Io("Server health check failed".into()));
+        }
+        Ok(())
     }
 }
 
@@ -101,6 +131,7 @@ impl StorageProvider for RemoteStorage {
                     updated_at: sp.updated_at,
                     server_id: Some(sp.id.to_string()),
                     sync_status: "synced".to_string(),
+                    last_synced_at: None,
                 })
             })
             .collect()
@@ -133,10 +164,11 @@ impl StorageProvider for RemoteStorage {
             updated_at: sp.updated_at,
             server_id: Some(sp.id.to_string()),
             sync_status: "synced".to_string(),
+            last_synced_at: None,
         })
     }
 
-    fn create_project(&self, project: &Project) -> Result<(), StorageError> {
+    fn create_project(&self, project: &Project) -> Result<Option<String>, StorageError> {
         let payload = CreateProjectPayload {
             encrypted_name: B64.encode(&project.encrypted_name),
             encrypted_content: B64.encode(&project.encrypted_content),
@@ -155,7 +187,9 @@ impl StorageProvider for RemoteStorage {
             let text = resp.text().unwrap_or_default();
             return Err(StorageError::Io(format!("Create failed: {}", text)));
         }
-        Ok(())
+
+        let created: ServerProject = resp.json().map_err(req_err)?;
+        Ok(Some(created.id.to_string()))
     }
 
     fn update_project(&self, project: &Project) -> Result<(), StorageError> {

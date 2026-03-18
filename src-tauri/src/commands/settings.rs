@@ -1,6 +1,8 @@
 // Copyright (c) 2026 Pavel <mr.terks@yandex.ru>
 // Licensed under the PolyForm Noncommercial License 1.0.0
 
+use std::path::Path;
+
 use base64::Engine;
 use tauri::State;
 use zeroize::Zeroize;
@@ -8,11 +10,27 @@ use zeroize::Zeroize;
 use crate::crypto;
 use crate::keychain;
 use crate::storage::local::LocalStorage;
+use crate::storage::StorageProvider;
 use crate::AppState;
 
 const KC_DB_PATH: &str = "db-path";
+const KC_DB_FOLDER: &str = "db-folder";
 const KC_MASTER_PASSWORD: &str = "master-password";
 const KC_PIN_HASH: &str = "pin-hash";
+
+fn derive_folder(db_path: &str) -> String {
+    Path::new(db_path)
+        .parent()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_default()
+}
+
+fn save_db_folder_if_empty(folder: &str) -> Result<(), String> {
+    if keychain::get(KC_DB_FOLDER).is_none() {
+        keychain::save(KC_DB_FOLDER, folder)?;
+    }
+    Ok(())
+}
 
 #[tauri::command]
 pub fn init_database(state: State<AppState>, db_path: String) -> Result<(), String> {
@@ -21,7 +39,29 @@ pub fn init_database(state: State<AppState>, db_path: String) -> Result<(), Stri
     *guard = Some(Box::new(storage));
 
     let mut path_guard = state.db_path.lock().map_err(|e| e.to_string())?;
-    *path_guard = Some(db_path);
+    *path_guard = Some(db_path.clone());
+    drop(path_guard);
+
+    save_db_folder_if_empty(&derive_folder(&db_path))?;
+
+    Ok(())
+}
+
+#[tauri::command]
+pub fn init_new_database(state: State<AppState>, db_path: String) -> Result<(), String> {
+    if Path::new(&db_path).exists() {
+        return Err("Database file already exists at this path".to_string());
+    }
+
+    let storage = LocalStorage::new(&db_path).map_err(|e| e.to_string())?;
+    let mut guard = state.storage.lock().map_err(|e| e.to_string())?;
+    *guard = Some(Box::new(storage));
+
+    let mut path_guard = state.db_path.lock().map_err(|e| e.to_string())?;
+    *path_guard = Some(db_path.clone());
+    drop(path_guard);
+
+    save_db_folder_if_empty(&derive_folder(&db_path))?;
 
     Ok(())
 }
@@ -58,6 +98,7 @@ pub fn set_master_password(state: State<AppState>, password: String) -> Result<(
     let db_path = state.db_path.lock().map_err(|e| e.to_string())?.clone();
     if let Some(ref path) = db_path {
         keychain::save(KC_DB_PATH, path)?;
+        save_db_folder_if_empty(&derive_folder(path))?;
     }
     keychain::save(KC_MASTER_PASSWORD, &password)?;
 
@@ -90,6 +131,7 @@ pub fn verify_master_password(state: State<AppState>, password: String) -> Resul
     let db_path = state.db_path.lock().map_err(|e| e.to_string())?.clone();
     if let Some(ref path) = db_path {
         keychain::save(KC_DB_PATH, path)?;
+        save_db_folder_if_empty(&derive_folder(path))?;
     }
     keychain::save(KC_MASTER_PASSWORD, &password)?;
 
@@ -223,6 +265,7 @@ pub fn get_saved_db_path() -> Option<String> {
 #[tauri::command]
 pub fn clear_saved_session() {
     keychain::remove(KC_DB_PATH);
+    keychain::remove(KC_DB_FOLDER);
     keychain::remove(KC_MASTER_PASSWORD);
     keychain::remove(KC_PIN_HASH);
 }
@@ -243,4 +286,162 @@ pub fn change_pin(old_pin: String, new_pin: String) -> Result<(), String> {
     keychain::save(KC_PIN_HASH, &new_hash_b64)?;
 
     Ok(())
+}
+
+#[tauri::command]
+pub fn get_db_folder() -> Option<String> {
+    keychain::get(KC_DB_FOLDER)
+}
+
+#[tauri::command]
+pub fn change_db_folder(state: State<AppState>, new_folder: String) -> Result<Option<String>, String> {
+    let current_db_path = state.db_path.lock().map_err(|e| e.to_string())?
+        .clone()
+        .ok_or("No database path set")?;
+
+    let old_folder = keychain::get(KC_DB_FOLDER);
+    let current_parent = derive_folder(&current_db_path);
+    let needs_move = old_folder.as_deref() == Some(&current_parent);
+
+    keychain::save(KC_DB_FOLDER, &new_folder)?;
+
+    if !needs_move {
+        return Ok(None);
+    }
+
+    let filename = Path::new(&current_db_path)
+        .file_name()
+        .ok_or("Invalid database path")?
+        .to_string_lossy()
+        .to_string();
+
+    let new_path = format!(
+        "{}/{}",
+        new_folder.trim_end_matches('/'),
+        filename
+    );
+
+    if Path::new(&new_path).exists() {
+        return Err("Database file already exists at target path".to_string());
+    }
+
+    std::fs::copy(&current_db_path, &new_path)
+        .map_err(|e| format!("Failed to copy database: {e}"))?;
+
+    let storage = LocalStorage::new(&new_path).map_err(|e| e.to_string())?;
+
+    {
+        let mut guard = state.storage.lock().map_err(|e| e.to_string())?;
+        *guard = Some(Box::new(storage));
+    }
+    {
+        let mut path_guard = state.db_path.lock().map_err(|e| e.to_string())?;
+        *path_guard = Some(new_path.clone());
+    }
+
+    keychain::save(KC_DB_PATH, &new_path)?;
+
+    let _ = std::fs::remove_file(&current_db_path);
+
+    Ok(Some(new_path))
+}
+
+pub(crate) fn reencrypt_storage(
+    storage: &dyn StorageProvider,
+    old_key: &[u8; crypto::KEY_LEN],
+    new_key: &[u8; crypto::KEY_LEN],
+) -> Result<u32, String> {
+    let projects = storage.list_projects().map_err(|e| e.to_string())?;
+    let mut count = 0u32;
+
+    let mut v2_project_ids = Vec::new();
+
+    for p in &projects {
+        if let Some(name_bytes) = crypto::try_decrypt_with_key(&p.encrypted_name, old_key) {
+            let content_bytes = crypto::try_decrypt_with_key(&p.encrypted_content, old_key)
+                .ok_or_else(|| format!("Failed to decrypt content for project {}", p.id))?;
+
+            let new_enc_name =
+                crypto::encrypt_with_key(&name_bytes, new_key).map_err(|e| e.to_string())?;
+            let new_enc_content =
+                crypto::encrypt_with_key(&content_bytes, new_key).map_err(|e| e.to_string())?;
+
+            let mut updated = p.clone();
+            updated.encrypted_name = new_enc_name;
+            updated.encrypted_content = new_enc_content;
+            storage.update_project(&updated).map_err(|e| e.to_string())?;
+
+            v2_project_ids.push(p.id.clone());
+            count += 1;
+        }
+    }
+
+    for pid in &v2_project_ids {
+        let backups = storage.list_backups(pid).map_err(|e| e.to_string())?;
+        for b in &backups {
+            if let Some(name_bytes) = crypto::try_decrypt_with_key(&b.encrypted_name, old_key) {
+                let content_bytes = crypto::try_decrypt_with_key(&b.encrypted_content, old_key)
+                    .unwrap_or_default();
+
+                let new_enc_name =
+                    crypto::encrypt_with_key(&name_bytes, new_key).map_err(|e| e.to_string())?;
+                let new_enc_content =
+                    crypto::encrypt_with_key(&content_bytes, new_key).map_err(|e| e.to_string())?;
+
+                let mut updated = b.clone();
+                updated.encrypted_name = new_enc_name;
+                updated.encrypted_content = new_enc_content;
+                storage.update_backup(&updated).map_err(|e| e.to_string())?;
+            }
+        }
+    }
+
+    Ok(count)
+}
+
+#[tauri::command]
+pub fn change_master_password(
+    state: State<AppState>,
+    current_password: String,
+    new_password: String,
+) -> Result<u32, String> {
+    let storage = state.storage.lock().map_err(|e| e.to_string())?;
+    let storage = storage.as_ref().ok_or("Database not initialized")?;
+
+    let token = storage
+        .get_verification_token()
+        .map_err(|e| e.to_string())?
+        .ok_or("No master password set")?;
+
+    if !crypto::verify_password(&token, &current_password) {
+        return Err("wrong_password".to_string());
+    }
+
+    if current_password == new_password {
+        return Err("same_password".to_string());
+    }
+
+    let old_key = crypto::derive_master_key(&current_password).map_err(|e| e.to_string())?;
+    let new_key = crypto::derive_master_key(&new_password).map_err(|e| e.to_string())?;
+
+    let count = reencrypt_storage(&**storage, &old_key, &new_key)?;
+
+    let new_token =
+        crypto::create_verification_token(&new_password).map_err(|e| e.to_string())?;
+    storage
+        .set_verification_token(&new_token)
+        .map_err(|e| e.to_string())?;
+
+    {
+        let mut cached = state.cached_key.lock().map_err(|e| e.to_string())?;
+        *cached = Some(new_key);
+    }
+    {
+        let mut mp = state.master_password.lock().map_err(|e| e.to_string())?;
+        *mp = Some(new_password.clone());
+    }
+
+    keychain::save(KC_MASTER_PASSWORD, &new_password)?;
+
+    Ok(count)
 }

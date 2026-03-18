@@ -4,7 +4,7 @@
 pub mod local;
 pub mod remote;
 
-use crate::models::Project;
+use crate::models::{Project, ProjectBackup};
 
 #[derive(Debug, thiserror::Error)]
 pub enum StorageError {
@@ -20,7 +20,7 @@ pub trait StorageProvider: Send + Sync {
     fn init(&self) -> Result<(), StorageError>;
     fn list_projects(&self) -> Result<Vec<Project>, StorageError>;
     fn get_project(&self, id: &str) -> Result<Project, StorageError>;
-    fn create_project(&self, project: &Project) -> Result<(), StorageError>;
+    fn create_project(&self, project: &Project) -> Result<Option<String>, StorageError>;
     fn update_project(&self, project: &Project) -> Result<(), StorageError>;
     fn delete_project(&self, id: &str) -> Result<(), StorageError>;
 
@@ -31,4 +31,14 @@ pub trait StorageProvider: Send + Sync {
 
     fn get_setting(&self, key: &str) -> Result<Option<String>, StorageError>;
     fn set_setting(&self, key: &str, value: &str) -> Result<(), StorageError>;
+
+    fn create_backup(&self, _backup: &ProjectBackup) -> Result<(), StorageError> { Ok(()) }
+    fn update_backup(&self, _backup: &ProjectBackup) -> Result<(), StorageError> { Ok(()) }
+    fn list_backups(&self, _project_id: &str) -> Result<Vec<ProjectBackup>, StorageError> { Ok(vec![]) }
+    fn get_backup(&self, backup_id: &str) -> Result<ProjectBackup, StorageError> {
+        Err(StorageError::NotFound(backup_id.to_string()))
+    }
+    fn get_latest_backup(&self, _project_id: &str) -> Result<Option<ProjectBackup>, StorageError> { Ok(None) }
+    fn delete_backup(&self, _backup_id: &str) -> Result<(), StorageError> { Ok(()) }
+    fn cleanup_backups(&self, _project_id: &str, _keep_count: usize) -> Result<(), StorageError> { Ok(()) }
 }

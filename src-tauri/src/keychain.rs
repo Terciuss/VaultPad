@@ -5,7 +5,14 @@ use keyring::Entry;
 use std::collections::HashMap;
 use std::sync::Mutex;
 
+#[cfg(debug_assertions)]
+const SERVICE: &str = "vaultpad-dev";
+#[cfg(not(debug_assertions))]
 const SERVICE: &str = "vaultpad";
+
+#[cfg(debug_assertions)]
+const ACCOUNT: &str = "vaultpad-dev-data";
+#[cfg(not(debug_assertions))]
 const ACCOUNT: &str = "vaultpad-data";
 
 static CACHE: Mutex<Option<HashMap<String, String>>> = Mutex::new(None);

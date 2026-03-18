@@ -17,7 +17,6 @@ export function LoginDialog({ open, onClose }: LoginDialogProps) {
   const masterPassword = useAppStore((s) => s.masterPassword);
   const setProjects = useAppStore((s) => s.setProjects);
 
-  const [mode, setMode] = useState<"login" | "register">("login");
   const [serverUrl, setServerUrl] = useState("http://localhost:8080");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -34,12 +33,7 @@ export function LoginDialog({ open, onClose }: LoginDialogProps) {
     setLoading(true);
 
     try {
-      if (mode === "login") {
-        await tauri.serverLogin(serverUrl, email, password);
-      } else {
-        const result = await tauri.serverRegister(serverUrl, email, password);
-        await tauri.serverLogin(serverUrl, result.email, password);
-      }
+      await tauri.serverLogin(serverUrl, email, password);
       setConnected(true);
     } catch (e) {
       setError(String(e));
@@ -53,8 +47,8 @@ export function LoginDialog({ open, onClose }: LoginDialogProps) {
     setError("");
     setLoading(true);
     try {
-      const msg = await tauri.syncProjects();
-      setSyncMessage(msg);
+      const result = await tauri.syncProjects();
+      setSyncMessage(`Sync: ${result.uploaded} uploaded, ${result.downloaded} downloaded`);
       if (masterPassword) {
         const projects = await tauri.listProjects();
         setProjects(projects);
@@ -128,29 +122,6 @@ export function LoginDialog({ open, onClose }: LoginDialogProps) {
             </div>
           ) : (
             <>
-              <div className="flex gap-2 mb-4">
-                <button
-                  onClick={() => setMode("login")}
-                  className={`flex-1 py-1.5 text-sm rounded-lg transition-colors ${
-                    mode === "login"
-                      ? "bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300"
-                      : "text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700"
-                  }`}
-                >
-                  {t("login.tab.login")}
-                </button>
-                <button
-                  onClick={() => setMode("register")}
-                  className={`flex-1 py-1.5 text-sm rounded-lg transition-colors ${
-                    mode === "register"
-                      ? "bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300"
-                      : "text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700"
-                  }`}
-                >
-                  {t("login.tab.register")}
-                </button>
-              </div>
-
               <form onSubmit={handleSubmit} className="space-y-3">
                 <div>
                   <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
@@ -200,9 +171,7 @@ export function LoginDialog({ open, onClose }: LoginDialogProps) {
                 >
                   {loading
                     ? t("login.connecting")
-                    : mode === "login"
-                      ? t("login.tab.login")
-                      : t("login.tab.register")}
+                    : t("login.tab.login")}
                 </button>
               </form>
             </>

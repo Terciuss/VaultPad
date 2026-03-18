@@ -1,15 +1,20 @@
 // Copyright (c) 2026 Pavel <mr.terks@yandex.ru>
 // Licensed under the PolyForm Noncommercial License 1.0.0
 
+mod backup;
 mod commands;
 mod crypto;
 mod keychain;
 mod models;
+pub mod password_registry;
+pub mod server_config;
 mod storage;
 
 use std::sync::Mutex;
 use storage::StorageProvider;
+use storage::local::LocalStorage;
 use tauri::Emitter;
+use tauri::Manager;
 use tauri::menu::{MenuBuilder, SubmenuBuilder, MenuItem, PredefinedMenuItem};
 
 pub struct AppState {
@@ -19,6 +24,7 @@ pub struct AppState {
     pub server_url: Mutex<Option<String>>,
     pub cached_key: Mutex<Option<[u8; crypto::KEY_LEN]>>,
     pub master_password: Mutex<Option<String>>,
+    pub active_context: Mutex<String>,
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -39,7 +45,9 @@ pub fn run() {
                 .build()?;
 
             let file_submenu = SubmenuBuilder::new(handle, "File")
-                .item(&MenuItem::with_id(handle, "new-project", "New Project", true, Some("CmdOrCtrl+N"))?)
+                .item(&MenuItem::with_id(handle, "new-project", "New File", true, Some("CmdOrCtrl+N"))?)
+                .separator()
+                .item(&MenuItem::with_id(handle, "add-server", "Add Server\u{2026}", true, None::<&str>)?)
                 .build()?;
 
             let edit_submenu = SubmenuBuilder::new(handle, "Edit")
@@ -52,18 +60,26 @@ pub fn run() {
                 .select_all()
                 .build()?;
 
-            let server_submenu = SubmenuBuilder::new(handle, "Server")
-                .item(&MenuItem::with_id(handle, "server-connect", "Connect\u{2026}", true, None::<&str>)?)
-                .build()?;
-
             let menu = MenuBuilder::new(handle)
                 .item(&app_submenu)
                 .item(&file_submenu)
                 .item(&edit_submenu)
-                .item(&server_submenu)
                 .build()?;
 
             app.set_menu(menu)?;
+
+            if let Some(db_path) = keychain::get("db-path") {
+                if let Ok(storage) = LocalStorage::new(&db_path) {
+                    let state = app.state::<AppState>();
+                    if let Ok(mut guard) = state.storage.lock() {
+                        *guard = Some(Box::new(storage));
+                    }
+                    if let Ok(mut path_guard) = state.db_path.lock() {
+                        *path_guard = Some(db_path);
+                    };
+                }
+            }
+
             Ok(())
         })
         .on_menu_event(|app, event| {
@@ -76,6 +92,7 @@ pub fn run() {
             server_url: Mutex::new(None),
             cached_key: Mutex::new(None),
             master_password: Mutex::new(None),
+            active_context: Mutex::new("local".to_string()),
         })
         .invoke_handler(tauri::generate_handler![
             commands::settings::init_database,
@@ -95,11 +112,34 @@ pub fn run() {
             commands::projects::delete_project,
             commands::projects::reorder_projects,
             commands::projects::get_project_password,
+            commands::projects::import_password_registry,
+            commands::projects::get_password_registry,
             commands::auth::server_login,
-            commands::auth::server_register,
             commands::auth::server_logout,
             commands::auth::is_server_connected,
             commands::sync::sync_projects,
+            commands::sync::sync_push,
+            commands::sync::check_remote_changes,
+            commands::sync::sync_pull_changed,
+            commands::sync::resolve_conflict,
+            commands::servers::list_servers,
+            commands::servers::add_server,
+            commands::servers::remove_server,
+            commands::servers::switch_context,
+            commands::servers::get_active_context,
+            commands::servers::srv_auth,
+            commands::servers::refresh_server_user,
+            commands::servers::is_server_authenticated,
+            commands::servers::set_server_master_password,
+            commands::servers::verify_server_master_password,
+            commands::servers::srv_logout,
+            commands::servers::admin_list_users,
+            commands::servers::admin_create_user,
+            commands::servers::admin_update_user,
+            commands::servers::admin_delete_user,
+            commands::servers::admin_list_user_shares,
+            commands::servers::share_project,
+            commands::servers::unshare_project,
             commands::settings::setup_pin,
             commands::settings::verify_pin,
             commands::settings::has_saved_session,
@@ -109,6 +149,15 @@ pub fn run() {
             commands::settings::clear_saved_session,
             commands::settings::change_pin,
             commands::settings::remove_pin,
+            commands::settings::init_new_database,
+            commands::settings::get_db_folder,
+            commands::settings::change_db_folder,
+            commands::settings::change_master_password,
+            commands::servers::change_server_master_password,
+            commands::backups::list_project_backups,
+            commands::backups::get_backup_content,
+            commands::backups::restore_backup,
+            commands::backups::delete_backup_cmd,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

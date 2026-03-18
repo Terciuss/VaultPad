@@ -11,11 +11,17 @@ import { EditProjectDialog } from "./EditProjectDialog";
 import { CustomPasswordDialog } from "./CustomPasswordDialog";
 import { DeleteProjectDialog } from "./DeleteProjectDialog";
 import { SettingsPanel } from "./SettingsPanel";
-import { LoginDialog } from "./LoginDialog";
+import { AddServerDialog } from "./AddServerDialog";
+import { ServerAuthDialog } from "./ServerAuthDialog";
+import { ServerMasterPasswordDialog } from "./ServerMasterPasswordDialog";
+import { ConflictResolutionDialog } from "./ConflictResolutionDialog";
+import { AdminPanel } from "./AdminPanel";
+import { ChangeMasterPasswordDialog } from "./ChangeMasterPasswordDialog";
 import { useAppStore } from "../store";
 import { useTauri } from "../hooks/useTauri";
 import { useAutoLock } from "../hooks/useAutoLock";
-import type { ProjectListItem, DecryptedProject } from "../lib/types";
+import { useSyncManager } from "../hooks/useSyncManager";
+import type { ProjectListItem, DecryptedProject, ConflictInfo } from "../lib/types";
 
 const SIDEBAR_MIN = 160;
 const SIDEBAR_MAX = 480;
@@ -40,35 +46,119 @@ export function MainLayout() {
   const openProject = useAppStore((s) => s.openProject);
   const setOpenProject = useAppStore((s) => s.setOpenProject);
   const lock = useAppStore((s) => s.lock);
+  const servers = useAppStore((s) => s.servers);
+  const setServers = useAppStore((s) => s.setServers);
+  const updateServer = useAppStore((s) => s.updateServer);
+  const activeContextId = useAppStore((s) => s.activeContextId);
+  const setActiveContextId = useAppStore((s) => s.setActiveContextId);
+  const expandedServers = useAppStore((s) => s.expandedServers);
+  const toggleServerExpanded = useAppStore((s) => s.toggleServerExpanded);
+  const setServersExpanded = useAppStore((s) => s.setServersExpanded);
 
   const [newProjectOpen, setNewProjectOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [loginOpen, setLoginOpen] = useState(false);
-  const [customPasswordProject, setCustomPasswordProject] =
-    useState<ProjectListItem | null>(null);
+  const [addServerOpen, setAddServerOpen] = useState(false);
+  const [authServerId, setAuthServerId] = useState<string | null>(null);
+  const [masterPwServerId, setMasterPwServerId] = useState<string | null>(null);
+  const [masterPwMode, setMasterPwMode] = useState<"setup" | "verify">("setup");
+  const [customPasswordProject, setCustomPasswordProject] = useState<ProjectListItem | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ProjectListItem | null>(null);
   const [editTarget, setEditTarget] = useState<DecryptedProject | null>(null);
   const [editPassword, setEditPassword] = useState<string | null>(null);
   const [loadingProjects, setLoadingProjects] = useState(false);
   const [openingProjectId, setOpeningProjectId] = useState<string | null>(null);
+  const [adminPanelOpen, setAdminPanelOpen] = useState(false);
+  const [changePwMode, setChangePwMode] = useState<"local" | "server" | null>(null);
+  const [changePwServerId, setChangePwServerId] = useState<string | null>(null);
 
   const [sidebarWidth, setSidebarWidth] = useState(getInitialSidebarWidth);
   const dragging = useRef(false);
 
   useAutoLock();
 
+  const [conflicts, setConflicts] = useState<ConflictInfo[]>([]);
+
+  const loadProjectsForSync = useCallback(async () => {
+    try {
+      const projects = await tauri.listProjects();
+      setProjects(projects);
+    } catch {}
+  }, [tauri, setProjects]);
+
+  const { notifyLocalSave } = useSyncManager({
+    onConflicts: setConflicts,
+    loadProjects: loadProjectsForSync,
+  });
+
+  const loadServers = useCallback(async () => {
+    try {
+      const srvList = await tauri.listServers();
+
+      for (const srv of srvList) {
+        if (srv.is_authenticated) {
+          try {
+            const isAdmin = await tauri.refreshServerUser(srv.id);
+            srv.is_admin = isAdmin;
+          } catch { /* server unreachable — keep cached value */ }
+        }
+      }
+
+      setServers(
+        srvList.map((s) => ({
+          ...s,
+          sync_status: "idle" as const,
+          last_synced_at: null,
+        }))
+      );
+    } catch (e) {
+      console.error("Failed to load servers:", e);
+    }
+  }, [tauri, setServers]);
+
+  const dbPath = useAppStore((s) => s.dbPath);
+
+  const ensureDatabase = useCallback(async (): Promise<boolean> => {
+    const isInit = await tauri.isDatabaseInitialized();
+    if (isInit) return true;
+    if (dbPath) {
+      await tauri.initDatabase(dbPath);
+      return true;
+    }
+    const savedPath = await tauri.getSavedDbPath();
+    if (savedPath) {
+      await tauri.initDatabase(savedPath);
+      return true;
+    }
+    return false;
+  }, [tauri, dbPath]);
+
   const loadProjects = useCallback(async () => {
-    if (!masterPassword) return;
+    if (!masterPassword && activeContextId === "local") return;
     try {
       setLoadingProjects(true);
       const projects = await tauri.listProjects();
       setProjects(projects);
     } catch (e) {
+      const errMsg = String(e);
+      if (errMsg.includes("Database not initialized")) {
+        try {
+          const ok = await ensureDatabase();
+          if (ok) {
+            const projects = await tauri.listProjects();
+            setProjects(projects);
+            return;
+          }
+        } catch {}
+      }
       console.error("Failed to load projects:", e);
     } finally {
       setLoadingProjects(false);
     }
-  }, [masterPassword, tauri, setProjects]);
+  }, [masterPassword, activeContextId, tauri, setProjects, ensureDatabase]);
+
+  useEffect(() => {
+    loadServers();
+  }, [loadServers]);
 
   useEffect(() => {
     loadProjects();
@@ -87,8 +177,8 @@ export function MainLayout() {
           tauri.clearCachedKey().catch(() => {});
           lock();
           break;
-        case "server-connect":
-          setLoginOpen(true);
+        case "add-server":
+          setAddServerOpen(true);
           break;
       }
     });
@@ -126,6 +216,12 @@ export function MainLayout() {
   }, [sidebarWidth]);
 
   const handleSelectProject = async (project: ProjectListItem) => {
+    if (project.is_password_registry) {
+      setSelectedProjectId(project.id);
+      setOpenProject(null);
+      return;
+    }
+
     if (project.has_custom_password && !project.password_saved) {
       setCustomPasswordProject(project);
       return;
@@ -139,6 +235,7 @@ export function MainLayout() {
       setOpenProject(decrypted);
     } catch (e) {
       console.error("Failed to open project:", e);
+      setCustomPasswordProject(project);
     } finally {
       setOpeningProjectId(null);
     }
@@ -176,8 +273,7 @@ export function MainLayout() {
     setEditPassword(null);
     loadProjects();
     if (target && selectedProjectId === target.id) {
-      const pw = target.has_custom_password ? "" : (masterPassword ?? "");
-      tauri.getProject(target.id, pw).then((p) => {
+      tauri.getProject(target.id, "").then((p) => {
         setOpenProject(p);
       }).catch(() => {});
     }
@@ -187,10 +283,7 @@ export function MainLayout() {
     if (!customPasswordProject) return;
 
     try {
-      const decrypted = await tauri.getProject(
-        customPasswordProject.id,
-        password
-      );
+      const decrypted = await tauri.getProject(customPasswordProject.id, password);
       setSelectedProjectId(customPasswordProject.id);
       setOpenProject(decrypted);
       setCustomPasswordProject(null);
@@ -230,6 +323,114 @@ export function MainLayout() {
     }
   };
 
+  const handleServerSwitch = async (contextId: string) => {
+    try {
+      setOpenProject(null);
+      setSelectedProjectId(null);
+      setProjects([]);
+      await tauri.switchContext(contextId);
+      setActiveContextId(contextId);
+      if (contextId === "local") {
+        if (masterPassword) {
+          await tauri.cacheMasterKey(masterPassword);
+        }
+      } else {
+        setServersExpanded(true);
+        if (!expandedServers.has(contextId)) {
+          toggleServerExpanded(contextId);
+        }
+      }
+      loadProjects();
+    } catch (e) {
+      console.error("Failed to switch context:", e);
+    }
+  };
+
+  const handleServerSync = async (serverId: string) => {
+    if (activeContextId !== serverId) {
+      await handleServerSwitch(serverId);
+    }
+
+    try {
+      const isAdmin = await tauri.refreshServerUser(serverId);
+      updateServer(serverId, { is_admin: isAdmin });
+    } catch { /* server unreachable */ }
+
+    updateServer(serverId, { sync_status: "syncing" });
+    try {
+      const result = await tauri.syncProjects();
+      updateServer(serverId, {
+        sync_status: result.conflicts.length > 0 ? "conflict" : "idle",
+        last_synced_at: new Date().toISOString(),
+      });
+      if (result.conflicts.length > 0) {
+        setConflicts(result.conflicts);
+      }
+      loadProjects();
+    } catch (e) {
+      console.error("Sync failed:", e);
+      updateServer(serverId, { sync_status: "error" });
+    }
+  };
+
+  const handleServerRemove = async (serverId: string) => {
+    const server = servers.find((s) => s.id === serverId);
+    if (!server) return;
+    if (!confirm(t("servers.removeConfirm", { name: server.name }))) return;
+
+    try {
+      await tauri.removeServer(serverId);
+      loadServers();
+      if (activeContextId === serverId) {
+        await handleServerSwitch("local");
+      }
+    } catch (e) {
+      console.error("Failed to remove server:", e);
+    }
+  };
+
+  const handleServerAuth = (serverId: string) => {
+    setAuthServerId(serverId);
+  };
+
+  const handleServerAuthenticated = () => {
+    loadServers();
+  };
+
+  const handleServerMasterPassword = (serverId: string) => {
+    const server = servers.find((s) => s.id === serverId);
+    if (!server) return;
+
+    setMasterPwMode(server.has_master_password ? "verify" : "setup");
+    setMasterPwServerId(serverId);
+  };
+
+  const handleServerMasterPasswordSuccess = async () => {
+    loadServers();
+    if (masterPwServerId) {
+      await handleServerSwitch(masterPwServerId);
+      handleServerSync(masterPwServerId);
+    }
+  };
+
+  const handleLocalSettings = () => {
+    setChangePwMode("local");
+    setChangePwServerId(null);
+  };
+
+  const handleChangeServerMasterPassword = (serverId: string) => {
+    setChangePwMode("server");
+    setChangePwServerId(serverId);
+  };
+
+  const handleChangePwSuccess = () => {
+    loadProjects();
+  };
+
+  const authServer = authServerId ? servers.find((s) => s.id === authServerId) : null;
+  const masterPwServer = masterPwServerId ? servers.find((s) => s.id === masterPwServerId) : null;
+  const changePwServer = changePwServerId ? servers.find((s) => s.id === changePwServerId) : null;
+
   return (
     <div className="flex h-screen overflow-hidden bg-white dark:bg-gray-900">
       <Sidebar
@@ -241,12 +442,20 @@ export function MainLayout() {
         onReorderProjects={handleReorderProjects}
         loadingProjects={loadingProjects}
         openingProjectId={openingProjectId}
+        onServerAuth={handleServerAuth}
+        onServerSync={handleServerSync}
+        onServerRemove={handleServerRemove}
+        onServerSwitch={handleServerSwitch}
+        onServerMasterPassword={handleServerMasterPassword}
+        onOpenAdminPanel={() => setAdminPanelOpen(true)}
+        onLocalSettings={handleLocalSettings}
+        onChangeServerMasterPassword={handleChangeServerMasterPassword}
       />
       <div
         className="w-1 shrink-0 cursor-col-resize bg-gray-200 dark:bg-gray-700 hover:bg-blue-400 dark:hover:bg-blue-500 active:bg-blue-500 dark:active:bg-blue-400 transition-colors"
         onMouseDown={handleDividerMouseDown}
       />
-      <ContentView openingProject={openingProjectId !== null} />
+      <ContentView openingProject={openingProjectId !== null} onLocalSave={notifyLocalSave} />
 
       <NewProjectDialog
         open={newProjectOpen}
@@ -280,9 +489,51 @@ export function MainLayout() {
         onClose={() => setSettingsOpen(false)}
       />
 
-      <LoginDialog
-        open={loginOpen}
-        onClose={() => setLoginOpen(false)}
+      <AddServerDialog
+        open={addServerOpen}
+        onClose={() => setAddServerOpen(false)}
+        onAdded={loadServers}
+      />
+
+      <ServerAuthDialog
+        open={!!authServerId}
+        serverId={authServerId ?? ""}
+        serverName={authServer?.name ?? ""}
+        onClose={() => setAuthServerId(null)}
+        onAuthenticated={handleServerAuthenticated}
+      />
+
+      <ServerMasterPasswordDialog
+        open={!!masterPwServerId}
+        serverId={masterPwServerId ?? ""}
+        serverName={masterPwServer?.name ?? ""}
+        mode={masterPwMode}
+        onClose={() => setMasterPwServerId(null)}
+        onSuccess={handleServerMasterPasswordSuccess}
+      />
+
+      <ConflictResolutionDialog
+        open={conflicts.length > 0}
+        conflicts={conflicts}
+        onClose={() => setConflicts([])}
+        onResolved={() => {
+          setConflicts([]);
+          loadProjects();
+        }}
+      />
+
+      <AdminPanel
+        open={adminPanelOpen}
+        onClose={() => setAdminPanelOpen(false)}
+      />
+
+      <ChangeMasterPasswordDialog
+        open={changePwMode !== null}
+        mode={changePwMode ?? "local"}
+        serverId={changePwServerId ?? undefined}
+        serverName={changePwServer?.name ?? undefined}
+        onClose={() => { setChangePwMode(null); setChangePwServerId(null); }}
+        onSuccess={handleChangePwSuccess}
       />
     </div>
   );

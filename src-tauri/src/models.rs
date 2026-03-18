@@ -13,6 +13,7 @@ pub struct Project {
     pub updated_at: String,
     pub server_id: Option<String>,
     pub sync_status: String,
+    pub last_synced_at: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -24,4 +25,22 @@ pub struct DecryptedProject {
     pub sort_order: i32,
     pub created_at: String,
     pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DecryptedProjectData {
+    pub name: String,
+    pub content: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectBackup {
+    pub id: String,
+    pub project_id: String,
+    pub encrypted_name: Vec<u8>,
+    pub encrypted_content: Vec<u8>,
+    pub created_at: String,
+    pub trigger_type: String,
+    pub content_length: i64,
 }

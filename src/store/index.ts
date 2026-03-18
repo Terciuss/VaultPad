@@ -6,8 +6,15 @@ import type {
   AppView,
   DecryptedProject,
   ProjectListItem,
+  ServerInfo,
+  ServerSyncStatus,
   ThemeMode,
 } from "../lib/types";
+
+interface ServerState extends ServerInfo {
+  sync_status: ServerSyncStatus;
+  last_synced_at: string | null;
+}
 
 interface AppStore {
   view: AppView;
@@ -31,10 +38,16 @@ interface AppStore {
   dbPath: string | null;
   setDbPath: (path: string | null) => void;
 
+  dbFolder: string | null;
+  setDbFolder: (folder: string | null) => void;
+
   lastActivity: number;
   touchActivity: () => void;
   autoLockMinutes: number;
   setAutoLockMinutes: (minutes: number) => void;
+
+  autoSyncEnabled: boolean;
+  setAutoSyncEnabled: (v: boolean) => void;
 
   onboardingShown: boolean;
   setOnboardingShown: (shown: boolean) => void;
@@ -48,8 +61,24 @@ interface AppStore {
   fontSize: number;
   setFontSize: (size: number) => void;
 
+  wordWrap: boolean;
+  setWordWrap: (v: boolean) => void;
+
   hasPinCode: boolean;
   setHasPinCode: (v: boolean) => void;
+
+  servers: ServerState[];
+  setServers: (servers: ServerState[]) => void;
+  updateServer: (id: string, partial: Partial<ServerState>) => void;
+
+  activeContextId: string;
+  setActiveContextId: (id: string) => void;
+
+  expandedServers: Set<string>;
+  toggleServerExpanded: (id: string) => void;
+
+  serversExpanded: boolean;
+  setServersExpanded: (v: boolean) => void;
 
   lock: () => void;
 }
@@ -76,10 +105,25 @@ export const useAppStore = create<AppStore>((set) => ({
   dbPath: null,
   setDbPath: (path) => set({ dbPath: path }),
 
+  dbFolder: null,
+  setDbFolder: (folder) => set({ dbFolder: folder }),
+
   lastActivity: Date.now(),
   touchActivity: () => set({ lastActivity: Date.now() }),
-  autoLockMinutes: 5,
-  setAutoLockMinutes: (minutes) => set({ autoLockMinutes: minutes }),
+  autoLockMinutes: (() => {
+    const v = parseInt(localStorage.getItem("vaultpad-auto-lock-minutes") || "", 10);
+    return [0, 1, 5, 15, 30, 60].includes(v) ? v : 5;
+  })(),
+  setAutoLockMinutes: (minutes) => {
+    localStorage.setItem("vaultpad-auto-lock-minutes", String(minutes));
+    set({ autoLockMinutes: minutes });
+  },
+
+  autoSyncEnabled: localStorage.getItem("vaultpad-auto-sync") !== "false",
+  setAutoSyncEnabled: (v) => {
+    localStorage.setItem("vaultpad-auto-sync", String(v));
+    set({ autoSyncEnabled: v });
+  },
 
   onboardingShown: false,
   setOnboardingShown: (shown) => set({ onboardingShown: shown }),
@@ -99,11 +143,41 @@ export const useAppStore = create<AppStore>((set) => ({
     set({ fontSize: size });
   },
 
+  wordWrap: localStorage.getItem("vaultpad-word-wrap") !== "false",
+  setWordWrap: (v) => {
+    localStorage.setItem("vaultpad-word-wrap", String(v));
+    set({ wordWrap: v });
+  },
+
   hasSavedSession: false,
   setHasSavedSession: (v) => set({ hasSavedSession: v }),
 
   hasPinCode: false,
   setHasPinCode: (v) => set({ hasPinCode: v }),
+
+  servers: [],
+  setServers: (servers) => set({ servers }),
+  updateServer: (id, partial) =>
+    set((state) => ({
+      servers: state.servers.map((s) =>
+        s.id === id ? { ...s, ...partial } : s
+      ),
+    })),
+
+  activeContextId: "local",
+  setActiveContextId: (id) => set({ activeContextId: id }),
+
+  expandedServers: new Set<string>(),
+  toggleServerExpanded: (id) =>
+    set((state) => {
+      const next = new Set(state.expandedServers);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return { expandedServers: next };
+    }),
+
+  serversExpanded: true,
+  setServersExpanded: (v) => set({ serversExpanded: v }),
 
   lock: () =>
     set((state) => ({

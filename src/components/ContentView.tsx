@@ -4,8 +4,15 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { Editor } from "./Editor";
+import { SearchBar } from "./SearchBar";
+import { BackupHistoryPanel } from "./BackupHistoryPanel";
+import { PasswordRegistryView } from "./PasswordRegistryView";
 import { useAppStore } from "../store";
 import { useTauri } from "../hooks/useTauri";
+import { useDebounce } from "../hooks/useDebounce";
+import type { Editor as TiptapEditor } from "@tiptap/react";
+
+const PASSWORD_REGISTRY_UUID = "00000000-0000-0000-0000-000000000001";
 
 const DEBOUNCE_MS = 1500;
 
@@ -13,22 +20,31 @@ type SaveStatus = "idle" | "saving" | "saved" | "error";
 
 interface ContentViewProps {
   openingProject?: boolean;
+  onLocalSave?: () => void;
 }
 
-export function ContentView({ openingProject }: ContentViewProps) {
+export function ContentView({ openingProject, onLocalSave }: ContentViewProps) {
   const { t } = useTranslation();
   const tauri = useTauri();
   const openProject = useAppStore((s) => s.openProject);
   const setOpenProject = useAppStore((s) => s.setOpenProject);
   const masterPassword = useAppStore((s) => s.masterPassword);
   const fontSize = useAppStore((s) => s.fontSize);
+  const wordWrap = useAppStore((s) => s.wordWrap);
+  const selectedProjectId = useAppStore((s) => s.selectedProjectId);
+
+  const isPasswordRegistry = selectedProjectId === PASSWORD_REGISTRY_UUID;
 
   const [content, setContent] = useState("");
   const [dirty, setDirty] = useState(false);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   const [error, setError] = useState("");
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>(null);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchShowReplace, setSearchShowReplace] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const saveDebounce = useDebounce(DEBOUNCE_MS);
   const savedTimerRef = useRef<ReturnType<typeof setTimeout>>(null);
+  const editorInstanceRef = useRef<TiptapEditor | null>(null);
 
   const contentRef = useRef(content);
   contentRef.current = content;
@@ -39,6 +55,8 @@ export function ContentView({ openingProject }: ContentViewProps) {
   openProjectRef.current = openProject;
   const masterPasswordRef = useRef(masterPassword);
   masterPasswordRef.current = masterPassword;
+  const onLocalSaveRef = useRef(onLocalSave);
+  onLocalSaveRef.current = onLocalSave;
 
   useEffect(() => {
     if (openProject) {
@@ -47,6 +65,7 @@ export function ContentView({ openingProject }: ContentViewProps) {
       dirtyRef.current = false;
       setSaveStatus("idle");
       setError("");
+      setSearchOpen(false);
     }
   }, [openProject?.id]);
 
@@ -75,6 +94,7 @@ export function ContentView({ openingProject }: ContentViewProps) {
       setSaveStatus("saved");
       if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
       savedTimerRef.current = setTimeout(() => setSaveStatus("idle"), 2000);
+      onLocalSaveRef.current?.();
     } catch (e) {
       setError(String(e));
       setSaveStatus("error");
@@ -83,23 +103,27 @@ export function ContentView({ openingProject }: ContentViewProps) {
 
   useEffect(() => {
     if (!dirty) return;
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => {
-      handleSave();
-    }, DEBOUNCE_MS);
-    return () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-    };
-  }, [dirty, handleSave]);
+    saveDebounce.run(handleSave);
+  }, [dirty, content, handleSave, saveDebounce]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "s") {
         e.preventDefault();
         if (dirtyRef.current) {
-          if (debounceRef.current) clearTimeout(debounceRef.current);
+          saveDebounce.cancel();
           handleSave();
         }
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key === "f") {
+        e.preventDefault();
+        setSearchShowReplace(false);
+        setSearchOpen(true);
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key === "h") {
+        e.preventDefault();
+        setSearchShowReplace(true);
+        setSearchOpen(true);
       }
     };
     window.addEventListener("keydown", handleKeyDown);
@@ -108,15 +132,53 @@ export function ContentView({ openingProject }: ContentViewProps) {
 
   useEffect(() => {
     return () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current);
       if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
     };
   }, []);
 
   const handleContentChange = (value: string) => {
+    const isEmpty = !value || value === "<p></p>" || value === "<p><br></p>";
+    const projectHasContent = openProjectRef.current &&
+      openProjectRef.current.content &&
+      openProjectRef.current.content.length > 0 &&
+      openProjectRef.current.content !== "<p></p>";
+
+    if (isEmpty && projectHasContent) {
+      return;
+    }
+
     setContent(value);
     setDirty(true);
   };
+
+  const handleEditorReady = useCallback((editor: TiptapEditor | null) => {
+    editorInstanceRef.current = editor;
+  }, []);
+
+  const handleBackupRestore = useCallback(async () => {
+    const proj = openProjectRef.current;
+    const mp = masterPasswordRef.current;
+    if (!proj) return;
+    try {
+      const password = proj.has_custom_password ? "" : (mp ?? "");
+      const updated = await tauri.getProject(proj.id, password);
+      setContent(updated.content);
+      setOpenProject(updated);
+      setDirty(false);
+      dirtyRef.current = false;
+      setHistoryOpen(false);
+    } catch (e) {
+      setError(String(e));
+    }
+  }, [tauri, setOpenProject]);
+
+  if (isPasswordRegistry) {
+    return (
+      <div className="flex-1 flex bg-white dark:bg-gray-900 h-full">
+        <PasswordRegistryView />
+      </div>
+    );
+  }
 
   if (!openProject) {
     return (
@@ -156,19 +218,29 @@ export function ContentView({ openingProject }: ContentViewProps) {
         </div>
       )}
 
+      {searchOpen && editorInstanceRef.current && (
+        <SearchBar
+          editor={editorInstanceRef.current}
+          onClose={() => setSearchOpen(false)}
+          showReplace={searchShowReplace}
+        />
+      )}
+
       <div className="flex-1 overflow-hidden">
         <Editor
           value={content}
           onChange={handleContentChange}
           placeholder={t("content.editorPlaceholder")}
           fontSize={fontSize}
+          wordWrap={wordWrap}
+          onEditorReady={handleEditorReady}
         />
       </div>
 
-      {saveStatus !== "idle" && (
-        <div className="absolute bottom-3 right-4 pointer-events-none">
+      <div className="absolute bottom-3 right-4 flex items-center gap-2">
+        {saveStatus !== "idle" && (
           <span
-            className={`text-xs font-medium px-2 py-1 rounded-md ${
+            className={`text-xs font-medium px-2 py-1 rounded-md pointer-events-none ${
               saveStatus === "saving"
                 ? "text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/30"
                 : saveStatus === "saved"
@@ -180,7 +252,26 @@ export function ContentView({ openingProject }: ContentViewProps) {
             {saveStatus === "saved" && t("content.autoSaved")}
             {saveStatus === "error" && t("error.decryptFailed")}
           </span>
-        </div>
+        )}
+        <button
+          onClick={() => setHistoryOpen(true)}
+          className="p-1.5 text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300 bg-white/80 dark:bg-gray-800/80 rounded-md backdrop-blur-sm transition-colors"
+          title={t("backup.historyTitle")}
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+        </button>
+      </div>
+
+      {historyOpen && openProject && (
+        <BackupHistoryPanel
+          projectId={openProject.id}
+          currentContent={content}
+          password={openProject.has_custom_password ? "" : (masterPassword ?? "")}
+          onRestore={handleBackupRestore}
+          onClose={() => setHistoryOpen(false)}
+        />
       )}
     </div>
   );

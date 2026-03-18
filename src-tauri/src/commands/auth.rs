@@ -75,22 +75,6 @@ pub fn server_login(
 }
 
 #[tauri::command]
-pub fn server_register(
-    server_url: String,
-    email: String,
-    password: String,
-) -> Result<LoginResult, String> {
-    let url = format!("{}/api/auth/register", server_url.trim_end_matches('/'));
-    let body = send_auth_request(&url, email, password)?;
-
-    Ok(LoginResult {
-        token: body.token,
-        user_id: body.user.id,
-        email: body.user.email,
-    })
-}
-
-#[tauri::command]
 pub fn server_logout(state: State<AppState>) -> Result<(), String> {
     let mut token = state.server_token.lock().map_err(|e| e.to_string())?;
     *token = None;

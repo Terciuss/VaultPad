@@ -4,7 +4,7 @@
 use rusqlite::{params, Connection};
 use std::sync::Mutex;
 
-use crate::models::Project;
+use crate::models::{Project, ProjectBackup};
 use super::{StorageError, StorageProvider};
 
 pub struct LocalStorage {
@@ -35,7 +35,8 @@ impl StorageProvider for LocalStorage {
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 server_id TEXT,
-                sync_status TEXT DEFAULT 'local'
+                sync_status TEXT DEFAULT 'local',
+                last_synced_at TEXT
             );
             CREATE TABLE IF NOT EXISTS settings (
                 key TEXT PRIMARY KEY,
@@ -47,6 +48,42 @@ impl StorageProvider for LocalStorage {
             );"
         )
         .map_err(|e| StorageError::Database(e.to_string()))?;
+
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS project_backups (
+                id TEXT PRIMARY KEY,
+                project_id TEXT NOT NULL,
+                encrypted_name BLOB NOT NULL,
+                encrypted_content BLOB NOT NULL,
+                created_at TEXT NOT NULL,
+                trigger_type TEXT NOT NULL,
+                content_length INTEGER NOT NULL,
+                FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_backups_project
+                ON project_backups(project_id, created_at DESC);"
+        )
+        .map_err(|e| StorageError::Database(e.to_string()))?;
+
+        conn.execute_batch("PRAGMA foreign_keys = ON;")
+            .map_err(|e| StorageError::Database(e.to_string()))?;
+
+        let has_last_synced_at: bool = {
+            let mut stmt = conn
+                .prepare("PRAGMA table_info(projects)")
+                .map_err(|e| StorageError::Database(e.to_string()))?;
+            let cols: Vec<String> = stmt
+                .query_map([], |row| row.get::<_, String>(1))
+                .map_err(|e| StorageError::Database(e.to_string()))?
+                .filter_map(|r| r.ok())
+                .collect();
+            cols.contains(&"last_synced_at".to_string())
+        };
+        if !has_last_synced_at {
+            conn.execute_batch("ALTER TABLE projects ADD COLUMN last_synced_at TEXT;")
+                .map_err(|e| StorageError::Database(e.to_string()))?;
+        }
+
         Ok(())
     }
 
@@ -55,7 +92,7 @@ impl StorageProvider for LocalStorage {
         let mut stmt = conn
             .prepare(
                 "SELECT id, encrypted_name, encrypted_content,
-                        sort_order, created_at, updated_at, server_id, sync_status
+                        sort_order, created_at, updated_at, server_id, sync_status, last_synced_at
                  FROM projects ORDER BY sort_order ASC, created_at ASC",
             )
             .map_err(|e| StorageError::Database(e.to_string()))?;
@@ -71,6 +108,7 @@ impl StorageProvider for LocalStorage {
                     updated_at: row.get(5)?,
                     server_id: row.get(6)?,
                     sync_status: row.get(7)?,
+                    last_synced_at: row.get(8)?,
                 })
             })
             .map_err(|e| StorageError::Database(e.to_string()))?
@@ -84,7 +122,7 @@ impl StorageProvider for LocalStorage {
         let conn = self.conn.lock().map_err(|e| StorageError::Database(e.to_string()))?;
         conn.query_row(
             "SELECT id, encrypted_name, encrypted_content,
-                    sort_order, created_at, updated_at, server_id, sync_status
+                    sort_order, created_at, updated_at, server_id, sync_status, last_synced_at
              FROM projects WHERE id = ?1",
             params![id],
             |row| {
@@ -97,6 +135,7 @@ impl StorageProvider for LocalStorage {
                     updated_at: row.get(5)?,
                     server_id: row.get(6)?,
                     sync_status: row.get(7)?,
+                    last_synced_at: row.get(8)?,
                 })
             },
         )
@@ -108,12 +147,12 @@ impl StorageProvider for LocalStorage {
         })
     }
 
-    fn create_project(&self, project: &Project) -> Result<(), StorageError> {
+    fn create_project(&self, project: &Project) -> Result<Option<String>, StorageError> {
         let conn = self.conn.lock().map_err(|e| StorageError::Database(e.to_string()))?;
         conn.execute(
             "INSERT INTO projects (id, encrypted_name, encrypted_content,
-                                   sort_order, created_at, updated_at, server_id, sync_status)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                                   sort_order, created_at, updated_at, server_id, sync_status, last_synced_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
             params![
                 project.id,
                 project.encrypted_name,
@@ -123,10 +162,11 @@ impl StorageProvider for LocalStorage {
                 project.updated_at,
                 project.server_id,
                 project.sync_status,
+                project.last_synced_at,
             ],
         )
         .map_err(|e| StorageError::Database(e.to_string()))?;
-        Ok(())
+        Ok(None)
     }
 
     fn update_project(&self, project: &Project) -> Result<(), StorageError> {
@@ -135,7 +175,7 @@ impl StorageProvider for LocalStorage {
             .execute(
                 "UPDATE projects SET encrypted_name = ?2, encrypted_content = ?3,
                         sort_order = ?4, updated_at = ?5,
-                        server_id = ?6, sync_status = ?7
+                        server_id = ?6, sync_status = ?7, last_synced_at = ?8
                  WHERE id = ?1",
                 params![
                     project.id,
@@ -145,6 +185,7 @@ impl StorageProvider for LocalStorage {
                     project.updated_at,
                     project.server_id,
                     project.sync_status,
+                    project.last_synced_at,
                 ],
             )
             .map_err(|e| StorageError::Database(e.to_string()))?;
@@ -221,6 +262,150 @@ impl StorageProvider for LocalStorage {
         conn.execute(
             "INSERT OR REPLACE INTO settings (key, value) VALUES (?1, ?2)",
             params![key, value],
+        )
+        .map_err(|e| StorageError::Database(e.to_string()))?;
+        Ok(())
+    }
+
+    fn create_backup(&self, backup: &ProjectBackup) -> Result<(), StorageError> {
+        let conn = self.conn.lock().map_err(|e| StorageError::Database(e.to_string()))?;
+        conn.execute(
+            "INSERT INTO project_backups (id, project_id, encrypted_name, encrypted_content,
+                                          created_at, trigger_type, content_length)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![
+                backup.id,
+                backup.project_id,
+                backup.encrypted_name,
+                backup.encrypted_content,
+                backup.created_at,
+                backup.trigger_type,
+                backup.content_length,
+            ],
+        )
+        .map_err(|e| StorageError::Database(e.to_string()))?;
+        Ok(())
+    }
+
+    fn update_backup(&self, backup: &ProjectBackup) -> Result<(), StorageError> {
+        let conn = self.conn.lock().map_err(|e| StorageError::Database(e.to_string()))?;
+        let rows = conn
+            .execute(
+                "UPDATE project_backups SET encrypted_name = ?2, encrypted_content = ?3
+                 WHERE id = ?1",
+                params![backup.id, backup.encrypted_name, backup.encrypted_content],
+            )
+            .map_err(|e| StorageError::Database(e.to_string()))?;
+        if rows == 0 {
+            return Err(StorageError::NotFound(backup.id.clone()));
+        }
+        Ok(())
+    }
+
+    fn list_backups(&self, project_id: &str) -> Result<Vec<ProjectBackup>, StorageError> {
+        let conn = self.conn.lock().map_err(|e| StorageError::Database(e.to_string()))?;
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, project_id, encrypted_name, encrypted_content,
+                        created_at, trigger_type, content_length
+                 FROM project_backups
+                 WHERE project_id = ?1
+                 ORDER BY created_at DESC",
+            )
+            .map_err(|e| StorageError::Database(e.to_string()))?;
+
+        let backups = stmt
+            .query_map(params![project_id], |row| {
+                Ok(ProjectBackup {
+                    id: row.get(0)?,
+                    project_id: row.get(1)?,
+                    encrypted_name: row.get(2)?,
+                    encrypted_content: row.get(3)?,
+                    created_at: row.get(4)?,
+                    trigger_type: row.get(5)?,
+                    content_length: row.get(6)?,
+                })
+            })
+            .map_err(|e| StorageError::Database(e.to_string()))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| StorageError::Database(e.to_string()))?;
+
+        Ok(backups)
+    }
+
+    fn get_backup(&self, backup_id: &str) -> Result<ProjectBackup, StorageError> {
+        let conn = self.conn.lock().map_err(|e| StorageError::Database(e.to_string()))?;
+        conn.query_row(
+            "SELECT id, project_id, encrypted_name, encrypted_content,
+                    created_at, trigger_type, content_length
+             FROM project_backups WHERE id = ?1",
+            params![backup_id],
+            |row| {
+                Ok(ProjectBackup {
+                    id: row.get(0)?,
+                    project_id: row.get(1)?,
+                    encrypted_name: row.get(2)?,
+                    encrypted_content: row.get(3)?,
+                    created_at: row.get(4)?,
+                    trigger_type: row.get(5)?,
+                    content_length: row.get(6)?,
+                })
+            },
+        )
+        .map_err(|e| match e {
+            rusqlite::Error::QueryReturnedNoRows => {
+                StorageError::NotFound(backup_id.to_string())
+            }
+            _ => StorageError::Database(e.to_string()),
+        })
+    }
+
+    fn get_latest_backup(&self, project_id: &str) -> Result<Option<ProjectBackup>, StorageError> {
+        let conn = self.conn.lock().map_err(|e| StorageError::Database(e.to_string()))?;
+        match conn.query_row(
+            "SELECT id, project_id, encrypted_name, encrypted_content,
+                    created_at, trigger_type, content_length
+             FROM project_backups
+             WHERE project_id = ?1
+             ORDER BY created_at DESC LIMIT 1",
+            params![project_id],
+            |row| {
+                Ok(ProjectBackup {
+                    id: row.get(0)?,
+                    project_id: row.get(1)?,
+                    encrypted_name: row.get(2)?,
+                    encrypted_content: row.get(3)?,
+                    created_at: row.get(4)?,
+                    trigger_type: row.get(5)?,
+                    content_length: row.get(6)?,
+                })
+            },
+        ) {
+            Ok(backup) => Ok(Some(backup)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(StorageError::Database(e.to_string())),
+        }
+    }
+
+    fn delete_backup(&self, backup_id: &str) -> Result<(), StorageError> {
+        let conn = self.conn.lock().map_err(|e| StorageError::Database(e.to_string()))?;
+        conn.execute("DELETE FROM project_backups WHERE id = ?1", params![backup_id])
+            .map_err(|e| StorageError::Database(e.to_string()))?;
+        Ok(())
+    }
+
+    fn cleanup_backups(&self, project_id: &str, keep_count: usize) -> Result<(), StorageError> {
+        let conn = self.conn.lock().map_err(|e| StorageError::Database(e.to_string()))?;
+        conn.execute(
+            "DELETE FROM project_backups
+             WHERE project_id = ?1
+               AND id NOT IN (
+                   SELECT id FROM project_backups
+                   WHERE project_id = ?1
+                   ORDER BY created_at DESC
+                   LIMIT ?2
+               )",
+            params![project_id, keep_count as i64],
         )
         .map_err(|e| StorageError::Database(e.to_string()))?;
         Ok(())
