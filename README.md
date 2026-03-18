@@ -4,6 +4,36 @@
 
 Encrypted data vault with zero-knowledge architecture. Desktop application for storing passwords, keys, documentation, and other sensitive information. All encryption and decryption happens locally -- the server never sees plaintext data.
 
+## Installation
+
+Download the latest release from [GitHub Releases](https://github.com/Terciuss/VaultPad/releases).
+
+### macOS
+
+1. Download `VaultPad-macOS-arm64.dmg` (Apple Silicon) or `VaultPad-macOS-x64.dmg` (Intel)
+2. Open the DMG and drag **VaultPad** into `/Applications`
+3. Before the first launch, open Terminal and run:
+   ```bash
+   xattr -cr /Applications/VaultPad.app
+   ```
+   This is required because the app is not signed with an Apple Developer ID. Without this step, macOS will block the application.
+
+   Alternatively: **System Settings → Privacy & Security** → find "VaultPad was blocked" → click **Open Anyway**.
+
+### Windows
+
+1. Download `VaultPad-Windows-x64-setup.exe`
+2. Run the installer and follow the prompts
+
+### Linux
+
+1. Download `VaultPad-Linux-x64.AppImage`
+2. Make it executable and run:
+   ```bash
+   chmod +x VaultPad-Linux-x64.AppImage
+   ./VaultPad-Linux-x64.AppImage
+   ```
+
 ## Features
 
 ### Encryption & Security
