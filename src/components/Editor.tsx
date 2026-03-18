@@ -75,6 +75,9 @@ export function Editor({
     ],
     content: normalizeContent(value),
     editable: !readOnly,
+    parseOptions: {
+      preserveWhitespace: "full",
+    },
     onUpdate: handleUpdate,
     onFocus: () => {
       userHasEdited.current = true;
@@ -94,7 +97,7 @@ export function Editor({
     const currentHTML = editor.getHTML();
     if (normalized !== currentHTML) {
       userHasEdited.current = false;
-      editor.commands.setContent(normalized, false);
+      editor.commands.setContent(normalized, false, { preserveWhitespace: "full" });
     }
   }, [value, editor]);
 
