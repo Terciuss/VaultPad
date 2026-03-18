@@ -34,7 +34,8 @@
     ],
     "macOS": {
       "minimumSystemVersion": "10.15",
-      "hardenedRuntime": true
+      "hardenedRuntime": true,
+      "signingIdentity": "-"
     },
     "windows": {
       "webviewInstallMode": {

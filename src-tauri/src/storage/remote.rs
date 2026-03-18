@@ -11,7 +11,6 @@ use crate::models::Project;
 #[derive(Serialize, Deserialize)]
 struct ServerProject {
     id: i64,
-    user_id: i64,
     encrypted_name: String,
     encrypted_content: String,
     sort_order: i32,
