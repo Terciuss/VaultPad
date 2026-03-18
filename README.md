@@ -1,6 +1,6 @@
 # VaultPad
 
-[Русская версия (README.ru.md)](README.ru.md)
+[Русская версия (README.ru.md)](README.ru.md) | [Server repository](https://github.com/Terciuss/VaultPadServer)
 
 Encrypted data vault with zero-knowledge architecture. Desktop application for storing passwords, keys, documentation, and other sensitive information. All encryption and decryption happens locally -- the server never sees plaintext data.
 
