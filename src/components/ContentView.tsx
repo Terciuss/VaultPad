@@ -58,7 +58,20 @@ export function ContentView({ openingProject, onLocalSave }: ContentViewProps) {
   const onLocalSaveRef = useRef(onLocalSave);
   onLocalSaveRef.current = onLocalSave;
 
+  const prevOpenProjectRef = useRef(openProject);
+
   useEffect(() => {
+    if (dirtyRef.current && prevOpenProjectRef.current) {
+      saveDebounce.cancel();
+      const prev = prevOpenProjectRef.current;
+      const prevContent = contentRef.current;
+      const mp = masterPasswordRef.current;
+      const password = prev.has_custom_password ? "" : (mp ?? "");
+      tauri.updateProject(prev.id, prev.name, prevContent, password, prev.has_custom_password)
+        .then(() => { onLocalSaveRef.current?.(); })
+        .catch(e => console.error("Flush save failed:", e));
+    }
+
     if (openProject) {
       setContent(openProject.content);
       setDirty(false);
@@ -67,6 +80,8 @@ export function ContentView({ openingProject, onLocalSave }: ContentViewProps) {
       setError("");
       setSearchOpen(false);
     }
+
+    prevOpenProjectRef.current = openProject;
   }, [openProject?.id]);
 
   const handleSave = useCallback(async () => {
@@ -133,6 +148,14 @@ export function ContentView({ openingProject, onLocalSave }: ContentViewProps) {
   useEffect(() => {
     return () => {
       if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
+      if (dirtyRef.current && openProjectRef.current) {
+        saveDebounce.cancel();
+        const proj = openProjectRef.current;
+        const mp = masterPasswordRef.current;
+        const password = proj.has_custom_password ? "" : (mp ?? "");
+        tauri.updateProject(proj.id, proj.name, contentRef.current, password, proj.has_custom_password)
+          .catch(() => {});
+      }
     };
   }, []);
 

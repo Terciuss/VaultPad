@@ -11,8 +11,9 @@ use crate::models::Project;
 #[derive(Serialize, Deserialize)]
 struct ServerProject {
     id: i64,
-    encrypted_name: String,
+    name: String,
     encrypted_content: String,
+    key_check: Option<String>,
     sort_order: i32,
     created_at: String,
     updated_at: String,
@@ -20,15 +21,17 @@ struct ServerProject {
 
 #[derive(Serialize)]
 struct CreateProjectPayload {
-    encrypted_name: String,
+    name: String,
     encrypted_content: String,
+    key_check: String,
     sort_order: i32,
 }
 
 #[derive(Serialize)]
 struct UpdateProjectPayload {
-    encrypted_name: String,
+    name: String,
     encrypted_content: String,
+    key_check: String,
     sort_order: i32,
 }
 
@@ -117,14 +120,21 @@ impl StorageProvider for RemoteStorage {
         server_projects
             .into_iter()
             .map(|sp| {
+                let key_check = sp
+                    .key_check
+                    .as_deref()
+                    .filter(|s| !s.is_empty())
+                    .map(|s| B64.decode(s))
+                    .transpose()
+                    .map_err(|e| StorageError::Io(e.to_string()))?
+                    .unwrap_or_default();
                 Ok(Project {
                     id: sp.id.to_string(),
-                    encrypted_name: B64
-                        .decode(&sp.encrypted_name)
-                        .map_err(|e| StorageError::Io(e.to_string()))?,
+                    name: sp.name,
                     encrypted_content: B64
                         .decode(&sp.encrypted_content)
                         .map_err(|e| StorageError::Io(e.to_string()))?,
+                    key_check,
                     sort_order: sp.sort_order,
                     created_at: sp.created_at,
                     updated_at: sp.updated_at,
@@ -149,15 +159,22 @@ impl StorageProvider for RemoteStorage {
         }
 
         let sp: ServerProject = resp.json().map_err(req_err)?;
+        let key_check = sp
+            .key_check
+            .as_deref()
+            .filter(|s| !s.is_empty())
+            .map(|s| B64.decode(s))
+            .transpose()
+            .map_err(|e| StorageError::Io(e.to_string()))?
+            .unwrap_or_default();
 
         Ok(Project {
             id: sp.id.to_string(),
-            encrypted_name: B64
-                .decode(&sp.encrypted_name)
-                .map_err(|e| StorageError::Io(e.to_string()))?,
+            name: sp.name,
             encrypted_content: B64
                 .decode(&sp.encrypted_content)
                 .map_err(|e| StorageError::Io(e.to_string()))?,
+            key_check,
             sort_order: sp.sort_order,
             created_at: sp.created_at,
             updated_at: sp.updated_at,
@@ -169,8 +186,9 @@ impl StorageProvider for RemoteStorage {
 
     fn create_project(&self, project: &Project) -> Result<Option<String>, StorageError> {
         let payload = CreateProjectPayload {
-            encrypted_name: B64.encode(&project.encrypted_name),
+            name: project.name.clone(),
             encrypted_content: B64.encode(&project.encrypted_content),
+            key_check: B64.encode(&project.key_check),
             sort_order: project.sort_order,
         };
 
@@ -195,8 +213,9 @@ impl StorageProvider for RemoteStorage {
         let server_id = project.server_id.as_deref().unwrap_or(&project.id);
 
         let payload = UpdateProjectPayload {
-            encrypted_name: B64.encode(&project.encrypted_name),
+            name: project.name.clone(),
             encrypted_content: B64.encode(&project.encrypted_content),
+            key_check: B64.encode(&project.key_check),
             sort_order: project.sort_order,
         };
 

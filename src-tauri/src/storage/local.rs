@@ -29,8 +29,9 @@ impl StorageProvider for LocalStorage {
         conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS projects (
                 id TEXT PRIMARY KEY,
-                encrypted_name BLOB NOT NULL,
+                name TEXT NOT NULL DEFAULT '',
                 encrypted_content BLOB NOT NULL,
+                key_check BLOB,
                 sort_order INTEGER DEFAULT 0,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
@@ -53,8 +54,9 @@ impl StorageProvider for LocalStorage {
             "CREATE TABLE IF NOT EXISTS project_backups (
                 id TEXT PRIMARY KEY,
                 project_id TEXT NOT NULL,
-                encrypted_name BLOB NOT NULL,
+                name TEXT NOT NULL DEFAULT '',
                 encrypted_content BLOB NOT NULL,
+                key_check BLOB,
                 created_at TEXT NOT NULL,
                 trigger_type TEXT NOT NULL,
                 content_length INTEGER NOT NULL,
@@ -68,20 +70,40 @@ impl StorageProvider for LocalStorage {
         conn.execute_batch("PRAGMA foreign_keys = ON;")
             .map_err(|e| StorageError::Database(e.to_string()))?;
 
-        let has_last_synced_at: bool = {
+        let project_cols: Vec<String> = {
             let mut stmt = conn
                 .prepare("PRAGMA table_info(projects)")
                 .map_err(|e| StorageError::Database(e.to_string()))?;
-            let cols: Vec<String> = stmt
-                .query_map([], |row| row.get::<_, String>(1))
-                .map_err(|e| StorageError::Database(e.to_string()))?
-                .filter_map(|r| r.ok())
-                .collect();
-            cols.contains(&"last_synced_at".to_string())
+            let rows = stmt.query_map([], |row| row.get::<_, String>(1))
+                .map_err(|e| StorageError::Database(e.to_string()))?;
+            rows.filter_map(|r| r.ok()).collect()
         };
-        if !has_last_synced_at {
+        if !project_cols.contains(&"last_synced_at".to_string()) {
             conn.execute_batch("ALTER TABLE projects ADD COLUMN last_synced_at TEXT;")
                 .map_err(|e| StorageError::Database(e.to_string()))?;
+        }
+        if !project_cols.contains(&"name".to_string()) {
+            conn.execute_batch(
+                "ALTER TABLE projects ADD COLUMN name TEXT NOT NULL DEFAULT '';
+                 ALTER TABLE projects ADD COLUMN key_check BLOB;"
+            )
+            .map_err(|e| StorageError::Database(e.to_string()))?;
+        }
+
+        let backup_cols: Vec<String> = {
+            let mut stmt = conn
+                .prepare("PRAGMA table_info(project_backups)")
+                .map_err(|e| StorageError::Database(e.to_string()))?;
+            let rows = stmt.query_map([], |row| row.get::<_, String>(1))
+                .map_err(|e| StorageError::Database(e.to_string()))?;
+            rows.filter_map(|r| r.ok()).collect()
+        };
+        if !backup_cols.is_empty() && !backup_cols.contains(&"name".to_string()) {
+            conn.execute_batch(
+                "ALTER TABLE project_backups ADD COLUMN name TEXT NOT NULL DEFAULT '';
+                 ALTER TABLE project_backups ADD COLUMN key_check BLOB;"
+            )
+            .map_err(|e| StorageError::Database(e.to_string()))?;
         }
 
         Ok(())
@@ -91,7 +113,7 @@ impl StorageProvider for LocalStorage {
         let conn = self.conn.lock().map_err(|e| StorageError::Database(e.to_string()))?;
         let mut stmt = conn
             .prepare(
-                "SELECT id, encrypted_name, encrypted_content,
+                "SELECT id, name, encrypted_content, key_check,
                         sort_order, created_at, updated_at, server_id, sync_status, last_synced_at
                  FROM projects ORDER BY sort_order ASC, created_at ASC",
             )
@@ -101,14 +123,15 @@ impl StorageProvider for LocalStorage {
             .query_map([], |row| {
                 Ok(Project {
                     id: row.get(0)?,
-                    encrypted_name: row.get(1)?,
+                    name: row.get(1)?,
                     encrypted_content: row.get(2)?,
-                    sort_order: row.get(3)?,
-                    created_at: row.get(4)?,
-                    updated_at: row.get(5)?,
-                    server_id: row.get(6)?,
-                    sync_status: row.get(7)?,
-                    last_synced_at: row.get(8)?,
+                    key_check: row.get::<_, Option<Vec<u8>>>(3)?.unwrap_or_default(),
+                    sort_order: row.get(4)?,
+                    created_at: row.get(5)?,
+                    updated_at: row.get(6)?,
+                    server_id: row.get(7)?,
+                    sync_status: row.get(8)?,
+                    last_synced_at: row.get(9)?,
                 })
             })
             .map_err(|e| StorageError::Database(e.to_string()))?
@@ -121,21 +144,22 @@ impl StorageProvider for LocalStorage {
     fn get_project(&self, id: &str) -> Result<Project, StorageError> {
         let conn = self.conn.lock().map_err(|e| StorageError::Database(e.to_string()))?;
         conn.query_row(
-            "SELECT id, encrypted_name, encrypted_content,
+            "SELECT id, name, encrypted_content, key_check,
                     sort_order, created_at, updated_at, server_id, sync_status, last_synced_at
              FROM projects WHERE id = ?1",
             params![id],
             |row| {
                 Ok(Project {
                     id: row.get(0)?,
-                    encrypted_name: row.get(1)?,
+                    name: row.get(1)?,
                     encrypted_content: row.get(2)?,
-                    sort_order: row.get(3)?,
-                    created_at: row.get(4)?,
-                    updated_at: row.get(5)?,
-                    server_id: row.get(6)?,
-                    sync_status: row.get(7)?,
-                    last_synced_at: row.get(8)?,
+                    key_check: row.get::<_, Option<Vec<u8>>>(3)?.unwrap_or_default(),
+                    sort_order: row.get(4)?,
+                    created_at: row.get(5)?,
+                    updated_at: row.get(6)?,
+                    server_id: row.get(7)?,
+                    sync_status: row.get(8)?,
+                    last_synced_at: row.get(9)?,
                 })
             },
         )
@@ -150,13 +174,14 @@ impl StorageProvider for LocalStorage {
     fn create_project(&self, project: &Project) -> Result<Option<String>, StorageError> {
         let conn = self.conn.lock().map_err(|e| StorageError::Database(e.to_string()))?;
         conn.execute(
-            "INSERT INTO projects (id, encrypted_name, encrypted_content,
+            "INSERT INTO projects (id, name, encrypted_content, key_check,
                                    sort_order, created_at, updated_at, server_id, sync_status, last_synced_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             params![
                 project.id,
-                project.encrypted_name,
+                project.name,
                 project.encrypted_content,
+                project.key_check,
                 project.sort_order,
                 project.created_at,
                 project.updated_at,
@@ -173,14 +198,15 @@ impl StorageProvider for LocalStorage {
         let conn = self.conn.lock().map_err(|e| StorageError::Database(e.to_string()))?;
         let rows = conn
             .execute(
-                "UPDATE projects SET encrypted_name = ?2, encrypted_content = ?3,
-                        sort_order = ?4, updated_at = ?5,
-                        server_id = ?6, sync_status = ?7, last_synced_at = ?8
+                "UPDATE projects SET name = ?2, encrypted_content = ?3,
+                        key_check = ?4, sort_order = ?5, updated_at = ?6,
+                        server_id = ?7, sync_status = ?8, last_synced_at = ?9
                  WHERE id = ?1",
                 params![
                     project.id,
-                    project.encrypted_name,
+                    project.name,
                     project.encrypted_content,
+                    project.key_check,
                     project.sort_order,
                     project.updated_at,
                     project.server_id,
@@ -270,14 +296,15 @@ impl StorageProvider for LocalStorage {
     fn create_backup(&self, backup: &ProjectBackup) -> Result<(), StorageError> {
         let conn = self.conn.lock().map_err(|e| StorageError::Database(e.to_string()))?;
         conn.execute(
-            "INSERT INTO project_backups (id, project_id, encrypted_name, encrypted_content,
-                                          created_at, trigger_type, content_length)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            "INSERT INTO project_backups (id, project_id, name, encrypted_content,
+                                          key_check, created_at, trigger_type, content_length)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             params![
                 backup.id,
                 backup.project_id,
-                backup.encrypted_name,
+                backup.name,
                 backup.encrypted_content,
+                backup.key_check,
                 backup.created_at,
                 backup.trigger_type,
                 backup.content_length,
@@ -291,9 +318,10 @@ impl StorageProvider for LocalStorage {
         let conn = self.conn.lock().map_err(|e| StorageError::Database(e.to_string()))?;
         let rows = conn
             .execute(
-                "UPDATE project_backups SET encrypted_name = ?2, encrypted_content = ?3
+                "UPDATE project_backups SET name = ?2,
+                        encrypted_content = ?3, key_check = ?4
                  WHERE id = ?1",
-                params![backup.id, backup.encrypted_name, backup.encrypted_content],
+                params![backup.id, backup.name, backup.encrypted_content, backup.key_check],
             )
             .map_err(|e| StorageError::Database(e.to_string()))?;
         if rows == 0 {
@@ -306,8 +334,8 @@ impl StorageProvider for LocalStorage {
         let conn = self.conn.lock().map_err(|e| StorageError::Database(e.to_string()))?;
         let mut stmt = conn
             .prepare(
-                "SELECT id, project_id, encrypted_name, encrypted_content,
-                        created_at, trigger_type, content_length
+                "SELECT id, project_id, name, encrypted_content,
+                        key_check, created_at, trigger_type, content_length
                  FROM project_backups
                  WHERE project_id = ?1
                  ORDER BY created_at DESC",
@@ -319,11 +347,12 @@ impl StorageProvider for LocalStorage {
                 Ok(ProjectBackup {
                     id: row.get(0)?,
                     project_id: row.get(1)?,
-                    encrypted_name: row.get(2)?,
+                    name: row.get(2)?,
                     encrypted_content: row.get(3)?,
-                    created_at: row.get(4)?,
-                    trigger_type: row.get(5)?,
-                    content_length: row.get(6)?,
+                    key_check: row.get::<_, Option<Vec<u8>>>(4)?.unwrap_or_default(),
+                    created_at: row.get(5)?,
+                    trigger_type: row.get(6)?,
+                    content_length: row.get(7)?,
                 })
             })
             .map_err(|e| StorageError::Database(e.to_string()))?
@@ -336,19 +365,20 @@ impl StorageProvider for LocalStorage {
     fn get_backup(&self, backup_id: &str) -> Result<ProjectBackup, StorageError> {
         let conn = self.conn.lock().map_err(|e| StorageError::Database(e.to_string()))?;
         conn.query_row(
-            "SELECT id, project_id, encrypted_name, encrypted_content,
-                    created_at, trigger_type, content_length
+            "SELECT id, project_id, name, encrypted_content,
+                    key_check, created_at, trigger_type, content_length
              FROM project_backups WHERE id = ?1",
             params![backup_id],
             |row| {
                 Ok(ProjectBackup {
                     id: row.get(0)?,
                     project_id: row.get(1)?,
-                    encrypted_name: row.get(2)?,
+                    name: row.get(2)?,
                     encrypted_content: row.get(3)?,
-                    created_at: row.get(4)?,
-                    trigger_type: row.get(5)?,
-                    content_length: row.get(6)?,
+                    key_check: row.get::<_, Option<Vec<u8>>>(4)?.unwrap_or_default(),
+                    created_at: row.get(5)?,
+                    trigger_type: row.get(6)?,
+                    content_length: row.get(7)?,
                 })
             },
         )
@@ -363,8 +393,8 @@ impl StorageProvider for LocalStorage {
     fn get_latest_backup(&self, project_id: &str) -> Result<Option<ProjectBackup>, StorageError> {
         let conn = self.conn.lock().map_err(|e| StorageError::Database(e.to_string()))?;
         match conn.query_row(
-            "SELECT id, project_id, encrypted_name, encrypted_content,
-                    created_at, trigger_type, content_length
+            "SELECT id, project_id, name, encrypted_content,
+                    key_check, created_at, trigger_type, content_length
              FROM project_backups
              WHERE project_id = ?1
              ORDER BY created_at DESC LIMIT 1",
@@ -373,11 +403,12 @@ impl StorageProvider for LocalStorage {
                 Ok(ProjectBackup {
                     id: row.get(0)?,
                     project_id: row.get(1)?,
-                    encrypted_name: row.get(2)?,
+                    name: row.get(2)?,
                     encrypted_content: row.get(3)?,
-                    created_at: row.get(4)?,
-                    trigger_type: row.get(5)?,
-                    content_length: row.get(6)?,
+                    key_check: row.get::<_, Option<Vec<u8>>>(4)?.unwrap_or_default(),
+                    created_at: row.get(5)?,
+                    trigger_type: row.get(6)?,
+                    content_length: row.get(7)?,
                 })
             },
         ) {

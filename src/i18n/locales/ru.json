@@ -183,7 +183,11 @@
   "servers.sync": "Синхронизировать",
   "servers.syncing": "Синхронизация...",
   "servers.remove": "Удалить",
+  "servers.removeTitle": "Удаление сервера",
   "servers.removeConfirm": "Удалить сервер «{{name}}»? Локальная база данных будет удалена.",
+  "servers.removing": "Удаление сервера...",
+  "servers.removeCancel": "Отмена",
+  "servers.removeDelete": "Удалить",
   "servers.logout": "Выйти",
   "servers.login": "Войти",
   "servers.lastSync": "Последняя синхронизация: {{time}}",
@@ -311,5 +315,30 @@
   "changeMasterPassword.processingHint": "Не закрывайте приложение. Это может занять некоторое время.",
   "changeMasterPassword.done": "Готово",
 
-  "localSection.settings": "Настройки"
+  "localSection.settings": "Настройки",
+
+  "changeCredentials.title": "Смена данных входа",
+  "changeCredentials.subtitle": "Сервер: {{name}}",
+  "changeCredentials.currentPassword": "Текущий пароль",
+  "changeCredentials.newEmail": "Новый email",
+  "changeCredentials.newEmailPlaceholder": "Оставьте пустым, чтобы не менять",
+  "changeCredentials.newPassword": "Новый пароль",
+  "changeCredentials.newPasswordPlaceholder": "Оставьте пустым, чтобы не менять",
+  "changeCredentials.confirmPassword": "Подтвердите новый пароль",
+  "changeCredentials.cancel": "Отмена",
+  "changeCredentials.save": "Сохранить",
+  "changeCredentials.saving": "Сохранение...",
+  "changeCredentials.errorCurrentRequired": "Введите текущий пароль",
+  "changeCredentials.errorNothingToChange": "Введите новый email или пароль",
+  "changeCredentials.errorPasswordMismatch": "Пароли не совпадают",
+  "changeCredentials.errorWrongPassword": "Неверный текущий пароль",
+  "changeCredentials.errorEmailTaken": "Email уже занят",
+  "changeCredentials.success": "Данные входа обновлены",
+  "changeCredentials.button": "Сменить данные входа",
+
+  "sync.syncing": "Синхронизация...",
+  "sync.ok": "Синхронизировано",
+  "sync.conflict": "Конфликт синхронизации — необходимо разрешить",
+  "sync.errorUnknown": "Ошибка синхронизации",
+  "sync.errorDetails": "Ошибка синхронизации: {{message}}"
 }

@@ -42,12 +42,13 @@ export function useSyncManager({ onConflicts, loadProjects }: UseSyncManagerOpti
     syncingRef.current = true;
     pendingPushRef.current = false;
 
-    updateServer(activeContextId, { sync_status: "syncing" });
+    updateServer(activeContextId, { sync_status: "syncing", sync_error: null });
     try {
       const result = await tauri.syncPush();
       const hasConflicts = result.conflicts.length > 0;
       updateServer(activeContextId, {
         sync_status: hasConflicts ? "conflict" : "idle",
+        sync_error: null,
         last_synced_at: new Date().toISOString(),
       });
       if (hasConflicts) {
@@ -56,7 +57,9 @@ export function useSyncManager({ onConflicts, loadProjects }: UseSyncManagerOpti
       if (result.uploaded > 0 || result.deleted > 0) {
         loadProjects();
       }
-    } catch {
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      updateServer(activeContextId, { sync_status: "error", sync_error: msg });
       pendingPushRef.current = true;
     } finally {
       syncingRef.current = false;
@@ -70,21 +73,23 @@ export function useSyncManager({ onConflicts, loadProjects }: UseSyncManagerOpti
       if (changed.length === 0) return;
 
       syncingRef.current = true;
-      updateServer(activeContextId, { sync_status: "syncing" });
+      updateServer(activeContextId, { sync_status: "syncing", sync_error: null });
 
       const ids = changed.map((c) => c.server_id);
       const result = await tauri.syncPullChanged(ids);
 
       updateServer(activeContextId, {
         sync_status: "idle",
+        sync_error: null,
         last_synced_at: new Date().toISOString(),
       });
 
       if (result.downloaded > 0 || result.updated > 0) {
         loadProjects();
       }
-    } catch {
-      // silent fail for background checks
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      updateServer(activeContextId, { sync_status: "error", sync_error: msg });
     } finally {
       syncingRef.current = false;
     }

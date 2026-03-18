@@ -124,9 +124,11 @@ pub fn verify_master_password(state: State<AppState>, password: String) -> Resul
     let mut cached = state.cached_key.lock().map_err(|e| e.to_string())?;
     *cached = Some(key);
     key.zeroize();
+    drop(cached);
 
     let mut mp = state.master_password.lock().map_err(|e| e.to_string())?;
     *mp = Some(password.clone());
+    drop(mp);
 
     let db_path = state.db_path.lock().map_err(|e| e.to_string())?.clone();
     if let Some(ref path) = db_path {
@@ -229,9 +231,11 @@ pub fn verify_pin(state: State<AppState>, pin: String) -> Result<String, String>
     let mut cached = state.cached_key.lock().map_err(|e| e.to_string())?;
     *cached = Some(key);
     key.zeroize();
+    drop(cached);
 
     let mut mp = state.master_password.lock().map_err(|e| e.to_string())?;
     *mp = Some(master_password.clone());
+    drop(mp);
 
     Ok(master_password)
 }
@@ -357,18 +361,24 @@ pub(crate) fn reencrypt_storage(
     let mut v2_project_ids = Vec::new();
 
     for p in &projects {
-        if let Some(name_bytes) = crypto::try_decrypt_with_key(&p.encrypted_name, old_key) {
+        let is_master = if !p.key_check.is_empty() {
+            crypto::try_decrypt_with_key(&p.key_check, old_key).is_some()
+        } else {
+            false
+        };
+
+        if is_master {
             let content_bytes = crypto::try_decrypt_with_key(&p.encrypted_content, old_key)
                 .ok_or_else(|| format!("Failed to decrypt content for project {}", p.id))?;
 
-            let new_enc_name =
-                crypto::encrypt_with_key(&name_bytes, new_key).map_err(|e| e.to_string())?;
             let new_enc_content =
                 crypto::encrypt_with_key(&content_bytes, new_key).map_err(|e| e.to_string())?;
+            let new_key_check =
+                crypto::encrypt_with_key(b"mk", new_key).map_err(|e| e.to_string())?;
 
             let mut updated = p.clone();
-            updated.encrypted_name = new_enc_name;
             updated.encrypted_content = new_enc_content;
+            updated.key_check = new_key_check;
             storage.update_project(&updated).map_err(|e| e.to_string())?;
 
             v2_project_ids.push(p.id.clone());
@@ -379,18 +389,24 @@ pub(crate) fn reencrypt_storage(
     for pid in &v2_project_ids {
         let backups = storage.list_backups(pid).map_err(|e| e.to_string())?;
         for b in &backups {
-            if let Some(name_bytes) = crypto::try_decrypt_with_key(&b.encrypted_name, old_key) {
+            let is_master_backup = if !b.key_check.is_empty() {
+                crypto::try_decrypt_with_key(&b.key_check, old_key).is_some()
+            } else {
+                false
+            };
+
+            if is_master_backup {
                 let content_bytes = crypto::try_decrypt_with_key(&b.encrypted_content, old_key)
                     .unwrap_or_default();
 
-                let new_enc_name =
-                    crypto::encrypt_with_key(&name_bytes, new_key).map_err(|e| e.to_string())?;
                 let new_enc_content =
                     crypto::encrypt_with_key(&content_bytes, new_key).map_err(|e| e.to_string())?;
+                let new_key_check =
+                    crypto::encrypt_with_key(b"mk", new_key).map_err(|e| e.to_string())?;
 
                 let mut updated = b.clone();
-                updated.encrypted_name = new_enc_name;
                 updated.encrypted_content = new_enc_content;
+                updated.key_check = new_key_check;
                 storage.update_backup(&updated).map_err(|e| e.to_string())?;
             }
         }

@@ -58,19 +58,6 @@ fn decrypt_project_data(
     key: &[u8; crypto::KEY_LEN],
     passwords: &[String],
 ) -> Result<DecryptedProjectData, String> {
-    let name_bytes = if let Some(n) = crypto::try_decrypt_with_key(&project.encrypted_name, key) {
-        n
-    } else {
-        let mut found = None;
-        for pw in passwords {
-            if let Ok(b) = crypto::decrypt_auto(&project.encrypted_name, None, Some(pw)) {
-                found = Some(b);
-                break;
-            }
-        }
-        found.ok_or_else(|| "Cannot decrypt project name".to_string())?
-    };
-
     let content_bytes =
         if let Some(c) = crypto::try_decrypt_with_key(&project.encrypted_content, key) {
             c
@@ -86,7 +73,7 @@ fn decrypt_project_data(
         };
 
     Ok(DecryptedProjectData {
-        name: String::from_utf8(name_bytes).map_err(|e| e.to_string())?,
+        name: project.name.clone(),
         content: String::from_utf8(content_bytes).map_err(|e| e.to_string())?,
         updated_at: project.updated_at.clone(),
     })
@@ -161,8 +148,9 @@ pub fn sync_projects(state: State<AppState>) -> Result<SyncResult, String> {
             let backup_entry = ProjectBackup {
                 id: Uuid::new_v4().to_string(),
                 project_id: lp.id.clone(),
-                encrypted_name: lp.encrypted_name.clone(),
+                name: lp.name.clone(),
                 encrypted_content: lp.encrypted_content.clone(),
+                key_check: lp.key_check.clone(),
                 created_at: now.clone(),
                 trigger_type: "pre_sync".to_string(),
                 content_length: content_len,
@@ -296,10 +284,15 @@ pub fn sync_projects(state: State<AppState>) -> Result<SyncResult, String> {
     // Handle registry push separately (auto-merge, never conflict)
     sync_registry_push(&**local, &remote, &cached_key, &now)?;
 
-    let local_server_ids: Vec<String> = local.list_projects()
-        .map_err(|e| e.to_string())?
+    let local_all = local.list_projects().map_err(|e| e.to_string())?;
+    let local_server_ids: Vec<String> = local_all
         .iter()
         .filter_map(|p| p.server_id.clone())
+        .collect();
+
+    let remote_server_ids: std::collections::HashSet<String> = remote_metas
+        .iter()
+        .map(|rm| rm.id.to_string())
         .collect();
 
     for rm in &remote_metas {
@@ -317,6 +310,18 @@ pub fn sync_projects(state: State<AppState>) -> Result<SyncResult, String> {
                     .map_err(|e| e.to_string())?;
             }
             downloaded += 1;
+        }
+    }
+
+    for lp in &local_all {
+        if password_registry::is_registry(&lp.id) || lp.sync_status == "deleted" {
+            continue;
+        }
+        if let Some(ref sid) = lp.server_id {
+            if !remote_server_ids.contains(sid) && lp.sync_status == "synced" {
+                local.delete_project(&lp.id).map_err(|e| e.to_string())?;
+                deleted += 1;
+            }
         }
     }
 
@@ -399,23 +404,24 @@ pub fn resolve_conflict(
             let content = merged_content.ok_or("Merged content required")?;
 
             let use_custom = !password.is_empty();
-            let (encrypted_name, encrypted_content) = if use_custom {
+            let (encrypted_content, key_check) = if use_custom {
                 (
-                    crypto::encrypt(name.as_bytes(), &password).map_err(|e| e.to_string())?,
                     crypto::encrypt(content.as_bytes(), &password).map_err(|e| e.to_string())?,
+                    crypto::encrypt(b"cp", &password).map_err(|e| e.to_string())?,
                 )
             } else {
                 (
-                    crypto::encrypt_with_key(name.as_bytes(), &cached_key)
-                        .map_err(|e| e.to_string())?,
                     crypto::encrypt_with_key(content.as_bytes(), &cached_key)
+                        .map_err(|e| e.to_string())?,
+                    crypto::encrypt_with_key(b"mk", &cached_key)
                         .map_err(|e| e.to_string())?,
                 )
             };
 
             let mut resolved = existing;
-            resolved.encrypted_name = encrypted_name;
+            resolved.name = name;
             resolved.encrypted_content = encrypted_content;
+            resolved.key_check = key_check;
             resolved.updated_at = now.clone();
             resolved.sync_status = "synced".to_string();
             resolved.last_synced_at = Some(now);
@@ -460,17 +466,15 @@ fn sync_registry_push(
                 let merged_content = password_registry::RegistryContent::new(merged);
                 let json = serde_json::to_string(&merged_content).map_err(|e| e.to_string())?;
 
-                let encrypted_name = crypto::encrypt_with_key(
-                    password_registry::PASSWORD_REGISTRY_NAME.as_bytes(),
-                    cached_key,
-                )
-                .map_err(|e| e.to_string())?;
                 let encrypted_content =
                     crypto::encrypt_with_key(json.as_bytes(), cached_key).map_err(|e| e.to_string())?;
+                let key_check =
+                    crypto::encrypt_with_key(b"mk", cached_key).map_err(|e| e.to_string())?;
 
                 let mut updated = registry.clone();
-                updated.encrypted_name = encrypted_name;
+                updated.name = password_registry::PASSWORD_REGISTRY_NAME.to_string();
                 updated.encrypted_content = encrypted_content;
+                updated.key_check = key_check;
                 updated.server_id = server_reg.server_id.clone();
                 updated.sync_status = "synced".to_string();
                 updated.last_synced_at = Some(now.to_string());
@@ -507,17 +511,15 @@ fn sync_registry_push(
                     let json =
                         serde_json::to_string(&merged_content).map_err(|e| e.to_string())?;
 
-                    let encrypted_name = crypto::encrypt_with_key(
-                        password_registry::PASSWORD_REGISTRY_NAME.as_bytes(),
-                        cached_key,
-                    )
-                    .map_err(|e| e.to_string())?;
                     let encrypted_content = crypto::encrypt_with_key(json.as_bytes(), cached_key)
                         .map_err(|e| e.to_string())?;
+                    let key_check =
+                        crypto::encrypt_with_key(b"mk", cached_key).map_err(|e| e.to_string())?;
 
                     let mut updated = registry.clone();
-                    updated.encrypted_name = encrypted_name;
+                    updated.name = password_registry::PASSWORD_REGISTRY_NAME.to_string();
                     updated.encrypted_content = encrypted_content;
+                    updated.key_check = key_check;
                     updated.sync_status = "synced".to_string();
                     updated.last_synced_at = Some(now.to_string());
 
@@ -588,17 +590,15 @@ fn handle_pulled_registry(
         let merged_content = password_registry::RegistryContent::new(merged);
         let json = serde_json::to_string(&merged_content).map_err(|e| e.to_string())?;
 
-        let encrypted_name = crypto::encrypt_with_key(
-            password_registry::PASSWORD_REGISTRY_NAME.as_bytes(),
-            cached_key,
-        )
-        .map_err(|e| e.to_string())?;
         let encrypted_content =
             crypto::encrypt_with_key(json.as_bytes(), cached_key).map_err(|e| e.to_string())?;
+        let key_check =
+            crypto::encrypt_with_key(b"mk", cached_key).map_err(|e| e.to_string())?;
 
         let mut updated = local_reg;
-        updated.encrypted_name = encrypted_name;
+        updated.name = password_registry::PASSWORD_REGISTRY_NAME.to_string();
         updated.encrypted_content = encrypted_content;
+        updated.key_check = key_check;
         updated.server_id = remote_project.server_id.clone();
         updated.sync_status = "modified".to_string();
         updated.last_synced_at = Some(now.to_string());
@@ -734,8 +734,9 @@ pub fn sync_push(state: State<AppState>) -> Result<SyncPushResult, String> {
             let backup_entry = ProjectBackup {
                 id: Uuid::new_v4().to_string(),
                 project_id: lp.id.clone(),
-                encrypted_name: lp.encrypted_name.clone(),
+                name: lp.name.clone(),
                 encrypted_content: lp.encrypted_content.clone(),
+                key_check: lp.key_check.clone(),
                 created_at: now.clone(),
                 trigger_type: "pre_sync".to_string(),
                 content_length: content_len,
@@ -971,6 +972,22 @@ pub fn sync_pull_changed(
             new_project.last_synced_at = Some(now.clone());
             local.create_project(&new_project).map_err(|e| e.to_string())?;
             downloaded += 1;
+        }
+    }
+
+    if let Ok(remote_metas) = remote.list_projects_meta() {
+        let remote_ids: std::collections::HashSet<String> =
+            remote_metas.iter().map(|rm| rm.id.to_string()).collect();
+
+        for lp in &local_projects {
+            if password_registry::is_registry(&lp.id) || lp.sync_status == "deleted" {
+                continue;
+            }
+            if let Some(ref sid) = lp.server_id {
+                if !remote_ids.contains(sid) && lp.sync_status == "synced" {
+                    let _ = local.delete_project(&lp.id);
+                }
+            }
         }
     }
 

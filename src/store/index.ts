@@ -13,6 +13,7 @@ import type {
 
 interface ServerState extends ServerInfo {
   sync_status: ServerSyncStatus;
+  sync_error: string | null;
   last_synced_at: string | null;
 }
 

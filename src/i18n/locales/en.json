@@ -183,7 +183,11 @@
   "servers.sync": "Sync",
   "servers.syncing": "Syncing...",
   "servers.remove": "Remove",
+  "servers.removeTitle": "Remove Server",
   "servers.removeConfirm": "Remove server \"{{name}}\"? The local database will be deleted.",
+  "servers.removing": "Removing server...",
+  "servers.removeCancel": "Cancel",
+  "servers.removeDelete": "Remove",
   "servers.logout": "Logout",
   "servers.login": "Login",
   "servers.lastSync": "Last sync: {{time}}",
@@ -311,5 +315,30 @@
   "changeMasterPassword.processingHint": "Do not close the application. This may take some time.",
   "changeMasterPassword.done": "Done",
 
-  "localSection.settings": "Settings"
+  "localSection.settings": "Settings",
+
+  "changeCredentials.title": "Change Login Credentials",
+  "changeCredentials.subtitle": "Server: {{name}}",
+  "changeCredentials.currentPassword": "Current password",
+  "changeCredentials.newEmail": "New email",
+  "changeCredentials.newEmailPlaceholder": "Leave empty to keep current",
+  "changeCredentials.newPassword": "New password",
+  "changeCredentials.newPasswordPlaceholder": "Leave empty to keep current",
+  "changeCredentials.confirmPassword": "Confirm new password",
+  "changeCredentials.cancel": "Cancel",
+  "changeCredentials.save": "Save",
+  "changeCredentials.saving": "Saving...",
+  "changeCredentials.errorCurrentRequired": "Current password is required",
+  "changeCredentials.errorNothingToChange": "Enter a new email or password",
+  "changeCredentials.errorPasswordMismatch": "Passwords do not match",
+  "changeCredentials.errorWrongPassword": "Incorrect current password",
+  "changeCredentials.errorEmailTaken": "Email already taken",
+  "changeCredentials.success": "Credentials updated successfully",
+  "changeCredentials.button": "Change credentials",
+
+  "sync.syncing": "Syncing...",
+  "sync.ok": "Synced",
+  "sync.conflict": "Sync conflict — resolve to continue",
+  "sync.errorUnknown": "Sync error",
+  "sync.errorDetails": "Sync error: {{message}}"
 }

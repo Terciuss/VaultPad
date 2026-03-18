@@ -8,6 +8,7 @@
   font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
   line-height: 1.7;
   color: var(--tw-prose-body, #1f2937);
+  white-space: pre-wrap;
 }
 
 .dark .tiptap-container .tiptap {
@@ -140,7 +141,7 @@
 }
 
 .tiptap-nowrap .tiptap {
-  white-space: nowrap;
+  white-space: pre;
   overflow-x: auto;
 }
 

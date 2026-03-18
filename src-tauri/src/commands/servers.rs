@@ -677,3 +677,42 @@ pub fn change_server_master_password(
 
     Ok(count)
 }
+
+#[derive(Serialize)]
+struct UpdateProfilePayload {
+    current_password: String,
+    email: String,
+    new_password: String,
+}
+
+#[tauri::command]
+pub fn srv_update_profile(
+    _state: State<AppState>,
+    server_id: String,
+    current_password: String,
+    new_email: String,
+    new_password: String,
+) -> Result<(), String> {
+    let cfg = server_config::find_server(&server_id)
+        .ok_or("Server not found")?;
+    let token = server_config::get_server_token(&server_id)
+        .ok_or("Not authenticated")?;
+
+    let client = Client::new();
+    let resp = client
+        .put(format!("{}/api/users/me", cfg.url.trim_end_matches('/')))
+        .header("Authorization", format!("Bearer {}", token))
+        .json(&UpdateProfilePayload {
+            current_password,
+            email: new_email,
+            new_password,
+        })
+        .send()
+        .map_err(|e| format!("Request failed: {}", e))?;
+
+    if !resp.status().is_success() {
+        let text = resp.text().unwrap_or_default();
+        return Err(format!("Failed: {}", text));
+    }
+    Ok(())
+}

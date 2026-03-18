@@ -67,14 +67,9 @@ pub fn parse_registry(
         .map_err(|e| format!("Failed to parse registry JSON: {e}"))
 }
 
-/// Check if a project is the password registry by decrypting its name.
-pub fn is_registry_by_name(project: &Project, key: &[u8; crypto::KEY_LEN]) -> bool {
-    if let Some(name_bytes) = crypto::try_decrypt_with_key(&project.encrypted_name, key) {
-        if let Ok(name) = String::from_utf8(name_bytes) {
-            return name == PASSWORD_REGISTRY_NAME;
-        }
-    }
-    false
+/// Check if a project is the password registry by its plaintext name.
+pub fn is_registry_by_name(project: &Project, _key: &[u8; crypto::KEY_LEN]) -> bool {
+    project.name == PASSWORD_REGISTRY_NAME
 }
 
 /// Rebuild the password registry from all local projects that have custom passwords in keychain.
@@ -91,19 +86,10 @@ pub fn rebuild_registry(
             continue;
         }
         if let Some(pw) = keychain::get(&kc_key(&p.id)) {
-            let name = match crypto::try_decrypt_with_key(&p.encrypted_name, key) {
-                Some(bytes) => String::from_utf8(bytes).unwrap_or_default(),
-                None => {
-                    crypto::decrypt_auto(&p.encrypted_name, None, Some(&pw))
-                        .ok()
-                        .and_then(|b| String::from_utf8(b).ok())
-                        .unwrap_or_else(|| "[unknown]".to_string())
-                }
-            };
             entries.push(RegistryEntry {
                 server_id: p.server_id.clone(),
                 local_id: p.id.clone(),
-                name,
+                name: p.name.clone(),
                 password: pw,
             });
         }
@@ -121,10 +107,10 @@ pub fn rebuild_registry(
     let registry = RegistryContent::new(entries);
     let json = serde_json::to_string(&registry).map_err(|e| e.to_string())?;
 
-    let encrypted_name =
-        crypto::encrypt_with_key(PASSWORD_REGISTRY_NAME.as_bytes(), key).map_err(|e| e.to_string())?;
     let encrypted_content =
         crypto::encrypt_with_key(json.as_bytes(), key).map_err(|e| e.to_string())?;
+    let key_check =
+        crypto::encrypt_with_key(b"mk", key).map_err(|e| e.to_string())?;
 
     let now = chrono::Utc::now().to_rfc3339();
 
@@ -136,8 +122,9 @@ pub fn rebuild_registry(
         };
         let updated = Project {
             id: PASSWORD_REGISTRY_UUID.to_string(),
-            encrypted_name,
+            name: PASSWORD_REGISTRY_NAME.to_string(),
             encrypted_content,
+            key_check,
             sort_order: existing.sort_order,
             created_at: existing.created_at,
             updated_at: now,
@@ -150,8 +137,9 @@ pub fn rebuild_registry(
         let max_order: i32 = projects.iter().map(|p| p.sort_order).max().unwrap_or(-1);
         let new_project = Project {
             id: PASSWORD_REGISTRY_UUID.to_string(),
-            encrypted_name,
+            name: PASSWORD_REGISTRY_NAME.to_string(),
             encrypted_content,
+            key_check,
             sort_order: max_order + 1,
             created_at: now.clone(),
             updated_at: now,
@@ -292,37 +280,30 @@ pub fn pre_encrypt_with_new_password(
     old_passwords: &[String],
     new_password: &str,
 ) -> Result<(), String> {
-    let mut name_bytes = None;
     let mut content_bytes = None;
 
     for pw in old_passwords {
-        if name_bytes.is_none() {
-            if let Ok(b) = crypto::decrypt_auto(&project.encrypted_name, None, Some(pw)) {
-                name_bytes = Some(b);
-            }
-        }
         if content_bytes.is_none() {
             if let Ok(b) = crypto::decrypt_auto(&project.encrypted_content, None, Some(pw)) {
                 content_bytes = Some(b);
             }
         }
-        if name_bytes.is_some() && content_bytes.is_some() {
+        if content_bytes.is_some() {
             break;
         }
     }
 
-    let name_bytes = name_bytes.ok_or("Cannot decrypt project name with any known password")?;
     let content_bytes =
         content_bytes.ok_or("Cannot decrypt project content with any known password")?;
 
-    let encrypted_name =
-        crypto::encrypt(name_bytes.as_slice(), new_password).map_err(|e| e.to_string())?;
     let encrypted_content =
         crypto::encrypt(content_bytes.as_slice(), new_password).map_err(|e| e.to_string())?;
+    let key_check =
+        crypto::encrypt(b"cp", new_password).map_err(|e| e.to_string())?;
 
     let mut updated = project.clone();
-    updated.encrypted_name = encrypted_name;
     updated.encrypted_content = encrypted_content;
+    updated.key_check = key_check;
     storage.update_project(&updated).map_err(|e| e.to_string())?;
 
     let _ = keychain::save(&kc_key(&project.id), new_password);

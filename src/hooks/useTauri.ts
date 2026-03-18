@@ -217,6 +217,9 @@ export function useTauri() {
 
     changeServerMasterPassword: (serverId: string, currentPassword: string, newPassword: string) =>
       invoke<number>("change_server_master_password", { serverId, currentPassword, newPassword }),
+
+    srvUpdateProfile: (serverId: string, currentPassword: string, newEmail: string, newPassword: string) =>
+      invoke<void>("srv_update_profile", { serverId, currentPassword, newEmail, newPassword }),
   }), []);
 }
 

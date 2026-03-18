@@ -53,72 +53,47 @@ pub fn list_projects(state: State<AppState>) -> Result<Vec<ProjectListItem>, Str
     let mut items = Vec::new();
 
     for p in projects {
-        let srv_id = p.server_id.clone();
-        let is_registry = password_registry::is_registry(&p.id);
-
-        match crypto::try_decrypt_with_key(&p.encrypted_name, &key) {
-            Some(name_bytes) => {
-                let name = String::from_utf8(name_bytes).map_err(|e| e.to_string())?;
-                items.push(ProjectListItem {
-                    id: p.id,
-                    name,
-                    has_custom_password: false,
-                    password_saved: false,
-                    sort_order: p.sort_order,
-                    created_at: p.created_at,
-                    updated_at: p.updated_at,
-                    server_id: srv_id,
-                    is_password_registry: is_registry,
-                });
-            }
-            None => {
-                let saved_pw = keychain::get(&kc_key(&p.id));
-                if let Some(pw) = &saved_pw {
-                    match crypto::decrypt_auto(&p.encrypted_name, None, Some(pw)) {
-                        Ok(name_bytes) => {
-                            let name =
-                                String::from_utf8(name_bytes).map_err(|e| e.to_string())?;
-                            items.push(ProjectListItem {
-                                id: p.id,
-                                name,
-                                has_custom_password: true,
-                                password_saved: true,
-                                sort_order: p.sort_order,
-                                created_at: p.created_at,
-                                updated_at: p.updated_at,
-                                server_id: srv_id,
-                                is_password_registry: is_registry,
-                            });
-                        }
-                        Err(_) => {
-                            items.push(ProjectListItem {
-                                id: p.id,
-                                name: "locked_custom_password".to_string(),
-                                has_custom_password: true,
-                                password_saved: false,
-                                sort_order: p.sort_order,
-                                created_at: p.created_at,
-                                updated_at: p.updated_at,
-                                server_id: srv_id,
-                                is_password_registry: is_registry,
-                            });
-                        }
-                    }
-                } else {
-                    items.push(ProjectListItem {
-                        id: p.id,
-                        name: "locked_custom_password".to_string(),
-                        has_custom_password: true,
-                        password_saved: false,
-                        sort_order: p.sort_order,
-                        created_at: p.created_at,
-                        updated_at: p.updated_at,
-                        server_id: srv_id,
-                        is_password_registry: is_registry,
-                    });
-                }
-            }
+        if p.sync_status == "deleted" {
+            continue;
         }
+
+        let srv_id = p.server_id.clone();
+        let is_registry_by_id = password_registry::is_registry(&p.id);
+        let is_registry = is_registry_by_id || p.name == password_registry::PASSWORD_REGISTRY_NAME;
+
+        let has_custom = if !p.key_check.is_empty() {
+            crypto::try_decrypt_with_key(&p.key_check, &key).is_none()
+        } else {
+            false
+        };
+
+        let password_saved = if has_custom {
+            keychain::get(&kc_key(&p.id)).is_some()
+        } else {
+            false
+        };
+
+        let display_name = if p.name.is_empty() {
+            if has_custom && !password_saved {
+                "locked_custom_password".to_string()
+            } else {
+                p.id.clone()
+            }
+        } else {
+            p.name
+        };
+
+        items.push(ProjectListItem {
+            id: p.id,
+            name: display_name,
+            has_custom_password: has_custom,
+            password_saved,
+            sort_order: p.sort_order,
+            created_at: p.created_at,
+            updated_at: p.updated_at,
+            server_id: srv_id,
+            is_password_registry: is_registry,
+        });
     }
 
     Ok(items)
@@ -137,14 +112,22 @@ pub fn get_project(
 
     let project = storage.get_project(&id).map_err(|e| e.to_string())?;
 
-    if let Some(key) = cached.as_ref() {
-        if let Some(name_bytes) = crypto::try_decrypt_with_key(&project.encrypted_name, key) {
+    let has_custom = if !project.key_check.is_empty() {
+        cached.as_ref().map_or(true, |key| {
+            crypto::try_decrypt_with_key(&project.key_check, key).is_none()
+        })
+    } else {
+        false
+    };
+
+    if !has_custom {
+        if let Some(key) = cached.as_ref() {
             let content_bytes =
                 crypto::decrypt_auto(&project.encrypted_content, Some(key), mp.as_deref())
                     .map_err(|e| e.to_string())?;
             return Ok(DecryptedProject {
                 id: project.id,
-                name: String::from_utf8(name_bytes).map_err(|e| e.to_string())?,
+                name: project.name,
                 content: String::from_utf8(content_bytes).map_err(|e| e.to_string())?,
                 has_custom_password: false,
                 sort_order: project.sort_order,
@@ -161,8 +144,6 @@ pub fn get_project(
         password
     };
 
-    let name_bytes = crypto::decrypt_auto(&project.encrypted_name, None, Some(&pw))
-        .map_err(|e| e.to_string())?;
     let content_bytes = crypto::decrypt_auto(&project.encrypted_content, None, Some(&pw))
         .map_err(|e| e.to_string())?;
 
@@ -172,7 +153,7 @@ pub fn get_project(
 
     Ok(DecryptedProject {
         id: project.id,
-        name: String::from_utf8(name_bytes).map_err(|e| e.to_string())?,
+        name: project.name,
         content: String::from_utf8(content_bytes).map_err(|e| e.to_string())?,
         has_custom_password: true,
         sort_order: project.sort_order,
@@ -196,17 +177,17 @@ pub fn create_project(
     let id = Uuid::new_v4().to_string();
     let now = chrono::Utc::now().to_rfc3339();
 
-    let (encrypted_name, encrypted_content) = if has_custom_password {
+    let (encrypted_content, key_check) = if has_custom_password {
         let _ = keychain::save(&kc_key(&id), &password);
         (
-            crypto::encrypt(name.as_bytes(), &password).map_err(|e| e.to_string())?,
             crypto::encrypt(content.as_bytes(), &password).map_err(|e| e.to_string())?,
+            crypto::encrypt(b"cp", &password).map_err(|e| e.to_string())?,
         )
     } else {
         keychain::remove(&kc_key(&id));
         (
-            crypto::encrypt_with_key(name.as_bytes(), &key).map_err(|e| e.to_string())?,
             crypto::encrypt_with_key(content.as_bytes(), &key).map_err(|e| e.to_string())?,
+            crypto::encrypt_with_key(b"mk", &key).map_err(|e| e.to_string())?,
         )
     };
 
@@ -220,8 +201,9 @@ pub fn create_project(
 
     let project = Project {
         id: id.clone(),
-        encrypted_name,
+        name,
         encrypted_content,
+        key_check,
         sort_order: max_order + 1,
         created_at: now.clone(),
         updated_at: now,
@@ -272,8 +254,9 @@ pub fn update_project(
             let backup_entry = ProjectBackup {
                 id: Uuid::new_v4().to_string(),
                 project_id: id.clone(),
-                encrypted_name: existing.encrypted_name.clone(),
+                name: existing.name.clone(),
                 encrypted_content: existing.encrypted_content.clone(),
+                key_check: existing.key_check.clone(),
                 created_at: now.clone(),
                 trigger_type: "auto".to_string(),
                 content_length: old_text.len() as i64,
@@ -283,7 +266,7 @@ pub fn update_project(
         }
     }
 
-    let (encrypted_name, encrypted_content) = if has_custom_password {
+    let (encrypted_content, key_check) = if has_custom_password {
         let pw = if password.is_empty() {
             keychain::get(&kc_key(&id)).ok_or("No password available for this project")?
         } else {
@@ -291,14 +274,14 @@ pub fn update_project(
             password
         };
         (
-            crypto::encrypt(name.as_bytes(), &pw).map_err(|e| e.to_string())?,
             crypto::encrypt(content.as_bytes(), &pw).map_err(|e| e.to_string())?,
+            crypto::encrypt(b"cp", &pw).map_err(|e| e.to_string())?,
         )
     } else {
         keychain::remove(&kc_key(&id));
         (
-            crypto::encrypt_with_key(name.as_bytes(), &key).map_err(|e| e.to_string())?,
             crypto::encrypt_with_key(content.as_bytes(), &key).map_err(|e| e.to_string())?,
+            crypto::encrypt_with_key(b"mk", &key).map_err(|e| e.to_string())?,
         )
     };
 
@@ -310,8 +293,9 @@ pub fn update_project(
 
     let project = Project {
         id,
-        encrypted_name,
+        name,
         encrypted_content,
+        key_check,
         sort_order: existing.sort_order,
         created_at: existing.created_at,
         updated_at: now,
@@ -338,7 +322,15 @@ pub fn delete_project(state: State<AppState>, id: String) -> Result<(), String> 
     let storage = storage.as_ref().ok_or("Database not initialized")?;
     let had_custom_password = keychain::get(&kc_key(&id)).is_some();
     keychain::remove(&kc_key(&id));
-    storage.delete_project(&id).map_err(|e| e.to_string())?;
+
+    let existing = storage.get_project(&id).map_err(|e| e.to_string())?;
+    if existing.server_id.is_some() {
+        let mut tombstone = existing;
+        tombstone.sync_status = "deleted".to_string();
+        storage.update_project(&tombstone).map_err(|e| e.to_string())?;
+    } else {
+        storage.delete_project(&id).map_err(|e| e.to_string())?;
+    }
 
     if had_custom_password {
         let _ = password_registry::rebuild_registry(&**storage, &key);

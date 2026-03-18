@@ -6,8 +6,9 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Project {
     pub id: String,
-    pub encrypted_name: Vec<u8>,
+    pub name: String,
     pub encrypted_content: Vec<u8>,
+    pub key_check: Vec<u8>,
     pub sort_order: i32,
     pub created_at: String,
     pub updated_at: String,
@@ -38,8 +39,9 @@ pub struct DecryptedProjectData {
 pub struct ProjectBackup {
     pub id: String,
     pub project_id: String,
-    pub encrypted_name: Vec<u8>,
+    pub name: String,
     pub encrypted_content: Vec<u8>,
+    pub key_check: Vec<u8>,
     pub created_at: String,
     pub trigger_type: String,
     pub content_length: i64,

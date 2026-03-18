@@ -24,27 +24,58 @@ interface SidebarProps {
   onOpenAdminPanel: () => void;
   onLocalSettings: () => void;
   onChangeServerMasterPassword: (serverId: string) => void;
+  onChangeCredentials: (serverId: string) => void;
 }
 
-function SyncStatusIcon({ status }: { status: string }) {
+function SyncStatusIcon({ status, errorMessage, onErrorClick }: { status: string; errorMessage?: string | null; onErrorClick?: () => void }) {
+  const { t } = useTranslation();
+  const [showTooltip, setShowTooltip] = useState(false);
+
   switch (status) {
     case "syncing":
       return (
-        <svg className="w-3.5 h-3.5 text-blue-500 animate-spin" fill="none" viewBox="0 0 24 24">
+        <svg className="w-3.5 h-3.5 text-blue-500 animate-spin flex-shrink-0" fill="none" viewBox="0 0 24 24">
+          <title>{t("sync.syncing")}</title>
           <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
           <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
         </svg>
       );
     case "error":
+      return (
+        <div className="relative flex-shrink-0">
+          <svg
+            className="w-3.5 h-3.5 text-red-500 cursor-pointer"
+            fill="currentColor"
+            viewBox="0 0 20 20"
+            onMouseEnter={() => setShowTooltip(true)}
+            onMouseLeave={() => setShowTooltip(false)}
+            onClick={(e) => { e.stopPropagation(); onErrorClick?.(); }}
+          >
+            <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+          </svg>
+          {showTooltip && (
+            <div className="absolute z-50 top-full left-1/2 -translate-x-1/2 mt-1.5 px-2.5 py-1.5 rounded-md bg-red-900/95 text-white text-xs whitespace-nowrap shadow-lg border border-red-700/50 max-w-xs">
+              <div className="font-medium">{t("sync.errorUnknown")}</div>
+              {errorMessage && <div className="mt-0.5 opacity-80 break-all whitespace-normal max-w-[200px]">{errorMessage}</div>}
+            </div>
+          )}
+        </div>
+      );
     case "conflict":
       return (
-        <svg className="w-3.5 h-3.5 text-red-500" fill="currentColor" viewBox="0 0 20 20">
+        <svg
+          className="w-3.5 h-3.5 text-orange-500 cursor-help flex-shrink-0"
+          fill="currentColor"
+          viewBox="0 0 20 20"
+        >
+          <title>{t("sync.conflict")}</title>
           <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
         </svg>
       );
     case "idle":
       return (
-        <svg className="w-3.5 h-3.5 text-green-500" fill="currentColor" viewBox="0 0 20 20">
+        <svg className="w-3.5 h-3.5 text-green-500 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+          <title>{t("sync.ok")}</title>
           <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
         </svg>
       );
@@ -70,6 +101,7 @@ export function Sidebar({
   onOpenAdminPanel,
   onLocalSettings,
   onChangeServerMasterPassword,
+  onChangeCredentials,
 }: SidebarProps) {
   const { t } = useTranslation();
   const projects = useAppStore((s) => s.projects);
@@ -192,7 +224,7 @@ export function Sidebar({
             >
               <div className="flex items-center gap-2 pr-14">
                 {project.has_custom_password && (
-                  <svg className="w-3 h-3 text-amber-500 shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                  <svg className={`w-3 h-3 shrink-0 ${project.password_saved ? "text-amber-500" : "text-gray-400 dark:text-gray-500"}`} fill="currentColor" viewBox="0 0 20 20">
                     <path
                       fillRule="evenodd"
                       d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z"
@@ -201,10 +233,8 @@ export function Sidebar({
                   </svg>
                 )}
                 {openingProjectId === project.id ? <Spinner size="sm" /> : null}
-                <span className="truncate">
-                  {project.name === "locked_custom_password"
-                    ? t("project.lockedCustomPassword")
-                    : project.name}
+                <span className={`truncate ${!project.password_saved && project.has_custom_password ? "italic text-gray-400 dark:text-gray-500" : ""}`}>
+                  {project.name || t("project.lockedCustomPassword")}
                 </span>
               </div>
             </button>
@@ -303,7 +333,11 @@ export function Sidebar({
                           {server.name}
                         </button>
 
-                        <SyncStatusIcon status={server.sync_status} />
+                        <SyncStatusIcon
+                          status={server.sync_status}
+                          errorMessage={server.sync_error}
+                          onErrorClick={() => onServerSync(server.id)}
+                        />
 
                         <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-all">
                           {server.is_authenticated && server.has_master_password && (
@@ -324,6 +358,15 @@ export function Sidebar({
                               >
                                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+                                </svg>
+                              </button>
+                              <button
+                                onClick={(e) => { e.stopPropagation(); onChangeCredentials(server.id); }}
+                                className="p-0.5 rounded text-gray-400 hover:text-green-500 transition-colors"
+                                title={t("changeCredentials.button")}
+                              >
+                                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                                 </svg>
                               </button>
                               {server.is_admin && (

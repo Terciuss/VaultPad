@@ -74,34 +74,28 @@ pub fn get_backup_content(
 
     let backup = storage.get_backup(&backup_id).map_err(|e| e.to_string())?;
 
-    if let Some(name_bytes) = crypto::try_decrypt_with_key(&backup.encrypted_name, &key) {
-        let content_bytes = crypto::decrypt_auto(
-            &backup.encrypted_content,
-            Some(&key),
-            mp.as_deref(),
-        )
-        .map_err(|e| e.to_string())?;
-
-        return Ok(BackupContent {
-            name: String::from_utf8(name_bytes).map_err(|e| e.to_string())?,
-            content: String::from_utf8(content_bytes).map_err(|e| e.to_string())?,
-        });
-    }
-
-    let pw = if password.is_empty() {
-        keychain::get(&kc_key(&backup.project_id))
-            .ok_or("No password available for decryption")?
+    let has_custom = if !backup.key_check.is_empty() {
+        crypto::try_decrypt_with_key(&backup.key_check, &key).is_none()
     } else {
-        password
+        false
     };
 
-    let name_bytes = crypto::decrypt_auto(&backup.encrypted_name, None, Some(&pw))
-        .map_err(|e| e.to_string())?;
-    let content_bytes = crypto::decrypt_auto(&backup.encrypted_content, None, Some(&pw))
-        .map_err(|e| e.to_string())?;
+    let content_bytes = if !has_custom {
+        crypto::decrypt_auto(&backup.encrypted_content, Some(&key), mp.as_deref())
+            .map_err(|e| e.to_string())?
+    } else {
+        let pw = if password.is_empty() {
+            keychain::get(&kc_key(&backup.project_id))
+                .ok_or("No password available for decryption")?
+        } else {
+            password
+        };
+        crypto::decrypt_auto(&backup.encrypted_content, None, Some(&pw))
+            .map_err(|e| e.to_string())?
+    };
 
     Ok(BackupContent {
-        name: String::from_utf8(name_bytes).map_err(|e| e.to_string())?,
+        name: backup.name,
         content: String::from_utf8(content_bytes).map_err(|e| e.to_string())?,
     })
 }
@@ -120,8 +114,9 @@ pub fn restore_backup(
 
     let _ = password;
 
-    project.encrypted_name = backup.encrypted_name;
+    project.name = backup.name;
     project.encrypted_content = backup.encrypted_content;
+    project.key_check = backup.key_check;
     project.updated_at = chrono::Utc::now().to_rfc3339();
 
     if project.sync_status == "synced" {

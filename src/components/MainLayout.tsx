@@ -17,6 +17,7 @@ import { ServerMasterPasswordDialog } from "./ServerMasterPasswordDialog";
 import { ConflictResolutionDialog } from "./ConflictResolutionDialog";
 import { AdminPanel } from "./AdminPanel";
 import { ChangeMasterPasswordDialog } from "./ChangeMasterPasswordDialog";
+import { ChangeCredentialsDialog } from "./ChangeCredentialsDialog";
 import { useAppStore } from "../store";
 import { useTauri } from "../hooks/useTauri";
 import { useAutoLock } from "../hooks/useAutoLock";
@@ -70,6 +71,8 @@ export function MainLayout() {
   const [adminPanelOpen, setAdminPanelOpen] = useState(false);
   const [changePwMode, setChangePwMode] = useState<"local" | "server" | null>(null);
   const [changePwServerId, setChangePwServerId] = useState<string | null>(null);
+  const [removingServer, setRemovingServer] = useState<{ id: string; name: string } | null>(null);
+  const [credentialsServerId, setCredentialsServerId] = useState<string | null>(null);
 
   const [sidebarWidth, setSidebarWidth] = useState(getInitialSidebarWidth);
   const dragging = useRef(false);
@@ -107,6 +110,7 @@ export function MainLayout() {
         srvList.map((s) => ({
           ...s,
           sync_status: "idle" as const,
+          sync_error: null,
           last_synced_at: null,
         }))
       );
@@ -356,11 +360,12 @@ export function MainLayout() {
       updateServer(serverId, { is_admin: isAdmin });
     } catch { /* server unreachable */ }
 
-    updateServer(serverId, { sync_status: "syncing" });
+    updateServer(serverId, { sync_status: "syncing", sync_error: null });
     try {
       const result = await tauri.syncProjects();
       updateServer(serverId, {
         sync_status: result.conflicts.length > 0 ? "conflict" : "idle",
+        sync_error: null,
         last_synced_at: new Date().toISOString(),
       });
       if (result.conflicts.length > 0) {
@@ -368,24 +373,32 @@ export function MainLayout() {
       }
       loadProjects();
     } catch (e) {
-      console.error("Sync failed:", e);
-      updateServer(serverId, { sync_status: "error" });
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("Sync failed:", msg);
+      updateServer(serverId, { sync_status: "error", sync_error: msg });
     }
   };
 
-  const handleServerRemove = async (serverId: string) => {
+  const handleServerRemove = (serverId: string) => {
     const server = servers.find((s) => s.id === serverId);
     if (!server) return;
-    if (!confirm(t("servers.removeConfirm", { name: server.name }))) return;
+    setRemovingServer({ id: serverId, name: server.name });
+  };
 
+  const handleServerRemoveConfirm = async () => {
+    if (!removingServer) return;
+    const serverId = removingServer.id;
+    setRemovingServer({ ...removingServer, id: "" });
     try {
-      await tauri.removeServer(serverId);
-      loadServers();
       if (activeContextId === serverId) {
         await handleServerSwitch("local");
       }
+      await tauri.removeServer(serverId);
+      loadServers();
     } catch (e) {
       console.error("Failed to remove server:", e);
+    } finally {
+      setRemovingServer(null);
     }
   };
 
@@ -450,6 +463,7 @@ export function MainLayout() {
         onOpenAdminPanel={() => setAdminPanelOpen(true)}
         onLocalSettings={handleLocalSettings}
         onChangeServerMasterPassword={handleChangeServerMasterPassword}
+        onChangeCredentials={setCredentialsServerId}
       />
       <div
         className="w-1 shrink-0 cursor-col-resize bg-gray-200 dark:bg-gray-700 hover:bg-blue-400 dark:hover:bg-blue-500 active:bg-blue-500 dark:active:bg-blue-400 transition-colors"
@@ -535,6 +549,48 @@ export function MainLayout() {
         onClose={() => { setChangePwMode(null); setChangePwServerId(null); }}
         onSuccess={handleChangePwSuccess}
       />
+
+      <ChangeCredentialsDialog
+        open={!!credentialsServerId}
+        serverId={credentialsServerId ?? ""}
+        serverName={servers.find(s => s.id === credentialsServerId)?.name ?? ""}
+        onClose={() => setCredentialsServerId(null)}
+        onSuccess={() => setCredentialsServerId(null)}
+      />
+
+      {removingServer && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50">
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl p-6 max-w-sm w-full mx-4">
+            {removingServer.id === "" ? (
+              <div className="flex flex-col items-center gap-4 py-4">
+                <div className="w-10 h-10 border-3 rounded-full border-gray-300 dark:border-gray-600 border-t-red-500 dark:border-t-red-400 animate-spin" />
+                <p className="text-sm text-gray-600 dark:text-gray-300">{t("servers.removing")}</p>
+              </div>
+            ) : (
+              <>
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-3">{t("servers.removeTitle")}</h3>
+                <p className="text-sm text-gray-600 dark:text-gray-300 mb-6">
+                  {t("servers.removeConfirm", { name: removingServer.name })}
+                </p>
+                <div className="flex gap-3 justify-end">
+                  <button
+                    onClick={() => setRemovingServer(null)}
+                    className="px-4 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                  >
+                    {t("servers.removeCancel")}
+                  </button>
+                  <button
+                    onClick={handleServerRemoveConfirm}
+                    className="px-4 py-2 text-sm rounded-lg bg-red-600 hover:bg-red-700 text-white transition-colors"
+                  >
+                    {t("servers.removeDelete")}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -154,6 +154,7 @@ pub fn run() {
             commands::settings::change_db_folder,
             commands::settings::change_master_password,
             commands::servers::change_server_master_password,
+            commands::servers::srv_update_profile,
             commands::backups::list_project_backups,
             commands::backups::get_backup_content,
             commands::backups::restore_backup,
