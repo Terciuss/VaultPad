@@ -81,13 +81,13 @@ jobs:
           mkdir -p artifacts
           BUNDLE="src-tauri/target/${{ matrix.target }}/release/bundle"
           for f in "$BUNDLE"/dmg/*.dmg; do
-            [ -f "$f" ] && cp "$f" "artifacts/VaultPad-${{ matrix.label }}.dmg"
+            [ -f "$f" ] && cp "$f" "artifacts/VaultPad-${{ matrix.label }}.dmg" || true
           done
           for f in "$BUNDLE"/macos/*.app.tar.gz; do
-            [ -f "$f" ] && cp "$f" "artifacts/VaultPad-${{ matrix.label }}.app.tar.gz"
+            [ -f "$f" ] && cp "$f" "artifacts/VaultPad-${{ matrix.label }}.app.tar.gz" || true
           done
           for f in "$BUNDLE"/macos/*.app.tar.gz.sig; do
-            [ -f "$f" ] && cp "$f" "artifacts/VaultPad-${{ matrix.label }}.app.tar.gz.sig"
+            [ -f "$f" ] && cp "$f" "artifacts/VaultPad-${{ matrix.label }}.app.tar.gz.sig" || true
           done
 
       - name: Collect artifacts (Linux)
@@ -96,13 +96,13 @@ jobs:
           mkdir -p artifacts
           BUNDLE="src-tauri/target/${{ matrix.target }}/release/bundle"
           for f in "$BUNDLE"/appimage/*.AppImage; do
-            [ -f "$f" ] && cp "$f" "artifacts/VaultPad-${{ matrix.label }}.AppImage"
+            [ -f "$f" ] && cp "$f" "artifacts/VaultPad-${{ matrix.label }}.AppImage" || true
           done
           for f in "$BUNDLE"/appimage/*.AppImage.tar.gz; do
-            [ -f "$f" ] && cp "$f" "artifacts/VaultPad-${{ matrix.label }}.AppImage.tar.gz"
+            [ -f "$f" ] && cp "$f" "artifacts/VaultPad-${{ matrix.label }}.AppImage.tar.gz" || true
           done
           for f in "$BUNDLE"/appimage/*.AppImage.tar.gz.sig; do
-            [ -f "$f" ] && cp "$f" "artifacts/VaultPad-${{ matrix.label }}.AppImage.tar.gz.sig"
+            [ -f "$f" ] && cp "$f" "artifacts/VaultPad-${{ matrix.label }}.AppImage.tar.gz.sig" || true
           done
 
       - name: Collect artifacts (Windows)
