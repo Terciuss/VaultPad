@@ -75,6 +75,30 @@ jobs:
           tauriScript: npx tauri
           args: --target ${{ matrix.target }}
 
+      - name: Re-sign macOS app (strip hardened runtime)
+        if: startsWith(matrix.platform, 'macos')
+        run: |
+          BUNDLE="src-tauri/target/${{ matrix.target }}/release/bundle"
+          APP="$BUNDLE/macos/VaultPad.app"
+          if [ -d "$APP" ]; then
+            echo "Re-signing $APP without --options runtime..."
+            codesign -f -s - --deep "$APP"
+            echo "Signature info:"
+            codesign -dv "$APP" 2>&1 || true
+
+            echo "Re-creating .app.tar.gz..."
+            rm -f "$BUNDLE"/macos/*.app.tar.gz
+            tar czf "$BUNDLE/macos/VaultPad.app.tar.gz" -C "$BUNDLE/macos" VaultPad.app
+
+            echo "Re-creating DMG with /Applications symlink..."
+            rm -f "$BUNDLE"/dmg/*.dmg
+            STAGING=$(mktemp -d)
+            cp -R "$APP" "$STAGING/"
+            ln -s /Applications "$STAGING/Applications"
+            hdiutil create -volname "VaultPad" -srcfolder "$STAGING" -ov -format UDZO "$BUNDLE/dmg/VaultPad-${{ matrix.label }}.dmg"
+            rm -rf "$STAGING"
+          fi
+
       - name: Collect artifacts (macOS)
         if: startsWith(matrix.platform, 'macos')
         run: |
