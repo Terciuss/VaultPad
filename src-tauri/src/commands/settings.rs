@@ -467,3 +467,47 @@ pub fn get_default_db_folder() -> Result<String, String> {
     let home = dirs::home_dir().ok_or("Cannot determine home directory")?;
     Ok(home.join(".vaultpad").to_string_lossy().to_string())
 }
+
+#[tauri::command]
+pub fn init_default_database(state: State<AppState>, db_path: String) -> Result<(), String> {
+    let path = Path::new(&db_path);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("Cannot create db folder: {e}"))?;
+    }
+
+    let storage = LocalStorage::new(&db_path).map_err(|e| e.to_string())?;
+    let mut guard = state.storage.lock().map_err(|e| e.to_string())?;
+    *guard = Some(Box::new(storage));
+
+    let mut path_guard = state.db_path.lock().map_err(|e| e.to_string())?;
+    *path_guard = Some(db_path.clone());
+    drop(path_guard);
+
+    save_db_folder_if_empty(&derive_folder(&db_path))?;
+
+    Ok(())
+}
+
+#[tauri::command]
+pub fn open_local_database(state: State<AppState>, db_path: String) -> Result<(), String> {
+    if !Path::new(&db_path).exists() {
+        return Err("Database file does not exist".to_string());
+    }
+
+    let storage = LocalStorage::new(&db_path).map_err(|e| e.to_string())?;
+    let mut guard = state.storage.lock().map_err(|e| e.to_string())?;
+    *guard = Some(Box::new(storage));
+
+    let mut path_guard = state.db_path.lock().map_err(|e| e.to_string())?;
+    *path_guard = Some(db_path.clone());
+    drop(path_guard);
+
+    let folder = derive_folder(&db_path);
+    keychain::save(KC_DB_PATH, &db_path)?;
+    keychain::save(KC_DB_FOLDER, &folder)?;
+
+    keychain::remove(KC_MASTER_PASSWORD);
+    keychain::remove(KC_PIN_HASH);
+
+    Ok(())
+}

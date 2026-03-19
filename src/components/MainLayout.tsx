@@ -64,6 +64,7 @@ export function MainLayout() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [addServerOpen, setAddServerOpen] = useState(false);
   const [authServerId, setAuthServerId] = useState<string | null>(null);
+  const [authWithMasterSetup, setAuthWithMasterSetup] = useState(false);
   const [masterPwServerId, setMasterPwServerId] = useState<string | null>(null);
   const [masterPwMode, setMasterPwMode] = useState<"setup" | "verify">("setup");
   const [customPasswordProject, setCustomPasswordProject] = useState<ProjectListItem | null>(null);
@@ -363,12 +364,31 @@ export function MainLayout() {
   };
 
   const handleServerAuth = (serverId: string) => {
+    setAuthWithMasterSetup(false);
     setAuthServerId(serverId);
   };
 
-  const handleServerAuthenticated = () => {
+  const handleAddServerAdded = useCallback(async (server: { id: string }) => {
+    await loadServers();
+    setAddServerOpen(false);
+    setAuthServerId(server.id);
+    setAuthWithMasterSetup(true);
+  }, [loadServers]);
+
+  const handleServerAuthenticated = useCallback(() => {
     loadServers();
-  };
+    if (authWithMasterSetup && authServerId) {
+      handleServerSwitch(authServerId);
+      handleServerSync(authServerId);
+    }
+    setAuthServerId(null);
+    setAuthWithMasterSetup(false);
+  }, [loadServers, authWithMasterSetup, authServerId]);
+
+  const handleServerAuthClose = useCallback(() => {
+    setAuthServerId(null);
+    setAuthWithMasterSetup(false);
+  }, []);
 
   const handleServerMasterPassword = (serverId: string) => {
     const server = servers.find((s) => s.id === serverId);
@@ -470,7 +490,7 @@ export function MainLayout() {
       <AddServerDialog
         open={addServerOpen}
         onClose={() => setAddServerOpen(false)}
-        onAdded={loadServers}
+        onAdded={handleAddServerAdded}
         prefill={pendingAddServer}
         onClearPrefill={() => setPendingAddServer(null)}
       />
@@ -479,7 +499,8 @@ export function MainLayout() {
         open={!!authServerId}
         serverId={authServerId ?? ""}
         serverName={authServer?.name ?? ""}
-        onClose={() => setAuthServerId(null)}
+        withMasterPasswordSetup={authWithMasterSetup}
+        onClose={handleServerAuthClose}
         onAuthenticated={handleServerAuthenticated}
       />
 

@@ -105,6 +105,8 @@
   "settings.autoLock.never": "Never",
   "settings.dbPath": "Database Path",
   "settings.dbPathNotSet": "Not set",
+  "settings.openOtherDb": "Open another database",
+  "settings.openOtherDbHint": "Select a .db file. Current session will be replaced and you will need to enter the master password.",
   "settings.lockNow": "Lock Now",
 
   "login.connected": "Server Connected",

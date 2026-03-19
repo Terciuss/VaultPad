@@ -62,6 +62,7 @@ export function SettingsPanel({ open: isOpen, onClose }: SettingsPanelProps) {
   const [pinLoading, setPinLoading] = useState(false);
   const [pinExists, setPinExists] = useState(false);
   const [folderChanging, setFolderChanging] = useState(false);
+  const [openOtherDbLoading, setOpenOtherDbLoading] = useState(false);
 
   const isConnectedToServer = servers.some(
     (s) => s.id === activeContextId && s.is_authenticated
@@ -116,9 +117,57 @@ export function SettingsPanel({ open: isOpen, onClose }: SettingsPanelProps) {
 
   const handleClearSession = async () => {
     if (!confirm(t("settings.clearSessionConfirm"))) return;
-    await tauri.clearSavedSession();
-    setHasSavedSession(false);
-    setView("init");
+    try {
+      await tauri.clearSavedSession();
+      setHasSavedSession(false);
+
+      const defaultFolder = await tauri.getDefaultDbFolder();
+      const defaultPath = `${defaultFolder.replace(/\/$/, "")}/vaultpad.db`;
+      await tauri.initDefaultDatabase(defaultPath);
+      setDbPath(defaultPath);
+      setDbFolder(defaultFolder);
+
+      const pinExistsNow = await tauri.hasPin();
+      setHasPinCode(pinExistsNow);
+
+      if (pinExistsNow) {
+        setView("pin-unlock");
+      } else {
+        const hasMaster = await tauri.hasMasterPassword();
+        setView(hasMaster ? "unlock" : "master-password-setup");
+      }
+      onClose();
+    } catch (e) {
+      console.error("Clear session failed:", e);
+      setView("init");
+    }
+  };
+
+  const handleOpenOtherDb = async () => {
+    try {
+      const path = await open({
+        title: t("settings.openOtherDb"),
+        filters: [{ name: "Database", extensions: ["db"] }],
+      });
+      if (!path || typeof path !== "string") return;
+
+      setOpenOtherDbLoading(true);
+      await tauri.openLocalDatabase(path);
+
+      const sep = path.includes("\\") ? "\\" : "/";
+      const lastSep = path.lastIndexOf(sep);
+      const parent = lastSep > 0 ? path.slice(0, lastSep) : path;
+
+      setDbPath(path);
+      setDbFolder(parent);
+      await tauri.clearCachedKey();
+      lock();
+      onClose();
+    } catch (e) {
+      alert(String(e));
+    } finally {
+      setOpenOtherDbLoading(false);
+    }
   };
 
   const handleChangeDbFolder = async () => {
@@ -415,6 +464,17 @@ export function SettingsPanel({ open: isOpen, onClose }: SettingsPanelProps) {
                 <p className="text-sm text-gray-500 dark:text-gray-400 font-mono break-all">
                   {dbPath || t("settings.dbPathNotSet")}
                 </p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1.5 mb-1">
+                  {t("settings.openOtherDbHint")}
+                </p>
+                <button
+                  onClick={handleOpenOtherDb}
+                  disabled={openOtherDbLoading}
+                  className="w-full py-2 px-4 text-sm border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-lg transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {openOtherDbLoading ? <Spinner size="sm" /> : null}
+                  {t("settings.openOtherDb")}
+                </button>
               </div>
 
               <div>

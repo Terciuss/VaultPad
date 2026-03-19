@@ -5,11 +5,12 @@ import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useTauri } from "../hooks/useTauri";
+import type { ServerInfo } from "../lib/types";
 
 interface AddServerDialogProps {
   open: boolean;
   onClose: () => void;
-  onAdded: () => void;
+  onAdded: (server: ServerInfo) => void;
   prefill?: { name: string; url: string } | null;
   onClearPrefill?: () => void;
 }
@@ -66,12 +67,12 @@ export function AddServerDialog({ open: isOpen, onClose, onAdded, prefill, onCle
 
     setLoading(true);
     try {
-      await tauri.addServer(name.trim(), url.trim(), dbFolder.trim());
+      const server = await tauri.addServer(name.trim(), url.trim(), dbFolder.trim());
       setName("");
       setUrl("http://localhost:8080");
       setDbFolder("");
       onClearPrefill?.();
-      onAdded();
+      onAdded(server);
       onClose();
     } catch (e) {
       setError(String(e));

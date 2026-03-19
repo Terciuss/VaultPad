@@ -201,6 +201,8 @@ pub fn run() {
             commands::settings::change_db_folder,
             commands::settings::change_master_password,
             commands::settings::get_default_db_folder,
+            commands::settings::init_default_database,
+            commands::settings::open_local_database,
             commands::servers::change_server_master_password,
             commands::servers::srv_update_profile,
             commands::backups::list_project_backups,

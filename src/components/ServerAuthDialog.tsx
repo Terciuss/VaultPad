@@ -9,16 +9,26 @@ interface ServerAuthDialogProps {
   open: boolean;
   serverId: string;
   serverName: string;
+  withMasterPasswordSetup?: boolean;
   onClose: () => void;
   onAuthenticated: () => void;
 }
 
-export function ServerAuthDialog({ open: isOpen, serverId, serverName, onClose, onAuthenticated }: ServerAuthDialogProps) {
+export function ServerAuthDialog({
+  open: isOpen,
+  serverId,
+  serverName,
+  withMasterPasswordSetup = false,
+  onClose,
+  onAuthenticated,
+}: ServerAuthDialogProps) {
   const { t } = useTranslation();
   const tauri = useTauri();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [masterPassword, setMasterPassword] = useState("");
+  const [masterPasswordConfirm, setMasterPasswordConfirm] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -27,12 +37,31 @@ export function ServerAuthDialog({ open: isOpen, serverId, serverName, onClose, 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+
+    if (withMasterPasswordSetup) {
+      if (masterPassword.length < 8) {
+        setError(t("masterPassword.validation.minLength"));
+        return;
+      }
+      if (masterPassword !== masterPasswordConfirm) {
+        setError(t("masterPassword.validation.mismatch"));
+        return;
+      }
+    }
+
     setLoading(true);
 
     try {
       await tauri.srvAuth(serverId, email, password);
+
+      if (withMasterPasswordSetup) {
+        await tauri.setServerMasterPassword(serverId, masterPassword);
+      }
+
       setEmail("");
       setPassword("");
+      setMasterPassword("");
+      setMasterPasswordConfirm("");
       onAuthenticated();
       onClose();
     } catch (e) {
@@ -85,6 +114,38 @@ export function ServerAuthDialog({ open: isOpen, serverId, serverName, onClose, 
                 className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
+
+            {withMasterPasswordSetup && (
+              <>
+                <div className="pt-2 border-t border-gray-200 dark:border-gray-700">
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
+                    {t("serverMasterPassword.setup.hint")}
+                  </p>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+                      {t("serverMasterPassword.setup.label")}
+                    </label>
+                    <input
+                      type="password"
+                      value={masterPassword}
+                      onChange={(e) => setMasterPassword(e.target.value)}
+                      className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div className="mt-2">
+                    <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+                      {t("serverMasterPassword.setup.confirm")}
+                    </label>
+                    <input
+                      type="password"
+                      value={masterPasswordConfirm}
+                      onChange={(e) => setMasterPasswordConfirm(e.target.value)}
+                      className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                </div>
+              </>
+            )}
 
             {error && <p className="text-red-500 text-sm">{error}</p>}
 

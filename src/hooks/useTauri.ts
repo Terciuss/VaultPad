@@ -223,6 +223,11 @@ export function useTauri() {
 
     getDefaultDbFolder: () =>
       invoke<string>("get_default_db_folder"),
+    initDefaultDatabase: (dbPath: string) =>
+      invoke<void>("init_default_database", { dbPath }),
+
+    openLocalDatabase: (dbPath: string) =>
+      invoke<void>("open_local_database", { dbPath }),
   }), []);
 }
 

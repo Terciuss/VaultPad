@@ -105,6 +105,8 @@
   "settings.autoLock.never": "Никогда",
   "settings.dbPath": "Путь к базе данных",
   "settings.dbPathNotSet": "Не задан",
+  "settings.openOtherDb": "Открыть другую базу",
+  "settings.openOtherDbHint": "Выберите файл .db. Текущая сессия будет заменена, потребуется ввод мастер-пароля.",
   "settings.lockNow": "Заблокировать",
 
   "login.connected": "Сервер подключён",

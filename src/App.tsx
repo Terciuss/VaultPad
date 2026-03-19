@@ -21,6 +21,7 @@ function App() {
   const view = useAppStore((s) => s.view);
   const setView = useAppStore((s) => s.setView);
   const setDbPath = useAppStore((s) => s.setDbPath);
+  const setDbFolder = useAppStore((s) => s.setDbFolder);
   const setMasterPassword = useAppStore((s) => s.setMasterPassword);
   const setHasSavedSession = useAppStore((s) => s.setHasSavedSession);
   const setHasPinCode = useAppStore((s) => s.setHasPinCode);
@@ -74,13 +75,35 @@ function App() {
   useEffect(() => {
     let cancelled = false;
 
+    async function bootstrapWithDefaultPath() {
+      const defaultFolder = await tauri.getDefaultDbFolder();
+      if (cancelled) return;
+      const defaultPath = `${defaultFolder.replace(/\/$/, "")}/vaultpad.db`;
+      await tauri.initDefaultDatabase(defaultPath);
+      if (cancelled) return;
+      setDbPath(defaultPath);
+      setDbFolder(defaultFolder);
+
+      const pinExists = await tauri.hasPin();
+      if (cancelled) return;
+      setHasPinCode(pinExists);
+
+      if (pinExists) {
+        setView("pin-unlock");
+      } else {
+        const hasMaster = await tauri.hasMasterPassword();
+        if (cancelled) return;
+        setView(hasMaster ? "unlock" : "master-password-setup");
+      }
+    }
+
     async function bootstrap() {
       try {
         const saved = await tauri.hasSavedSession();
         if (cancelled) return;
 
         if (!saved) {
-          setView("init");
+          await bootstrapWithDefaultPath();
           return;
         }
 
@@ -89,7 +112,7 @@ function App() {
         if (cancelled) return;
 
         if (!dbPath) {
-          setView("init");
+          await bootstrapWithDefaultPath();
           return;
         }
 
