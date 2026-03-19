@@ -24,7 +24,8 @@ interface AppStore {
   masterPassword: string | null;
   setMasterPassword: (password: string | null) => void;
 
-  projects: ProjectListItem[];
+  projectsByContext: Record<string, ProjectListItem[]>;
+  setProjectsForContext: (contextId: string, projects: ProjectListItem[]) => void;
   setProjects: (projects: ProjectListItem[]) => void;
 
   selectedProjectId: string | null;
@@ -75,6 +76,9 @@ interface AppStore {
   activeContextId: string;
   setActiveContextId: (id: string) => void;
 
+  localExpanded: boolean;
+  setLocalExpanded: (v: boolean) => void;
+
   expandedServers: Set<string>;
   toggleServerExpanded: (id: string) => void;
 
@@ -91,8 +95,15 @@ export const useAppStore = create<AppStore>((set) => ({
   masterPassword: null,
   setMasterPassword: (password) => set({ masterPassword: password }),
 
-  projects: [],
-  setProjects: (projects) => set({ projects }),
+  projectsByContext: {},
+  setProjectsForContext: (contextId, projects) =>
+    set((state) => ({
+      projectsByContext: { ...state.projectsByContext, [contextId]: projects },
+    })),
+  setProjects: (projects) =>
+    set((state) => ({
+      projectsByContext: { ...state.projectsByContext, [state.activeContextId]: projects },
+    })),
 
   selectedProjectId: null,
   setSelectedProjectId: (id) => set({ selectedProjectId: id }),
@@ -177,6 +188,9 @@ export const useAppStore = create<AppStore>((set) => ({
       return { expandedServers: next };
     }),
 
+  localExpanded: true,
+  setLocalExpanded: (v) => set({ localExpanded: v }),
+
   serversExpanded: true,
   setServersExpanded: (v) => set({ serversExpanded: v }),
 
@@ -184,8 +198,16 @@ export const useAppStore = create<AppStore>((set) => ({
     set((state) => ({
       masterPassword: null,
       openProject: null,
-      projects: [],
+      projectsByContext: {},
       selectedProjectId: null,
       view: state.hasPinCode ? "pin-unlock" : "unlock",
     })),
 }));
+
+const EMPTY_PROJECTS: ProjectListItem[] = [];
+
+export const selectActiveProjects = (s: AppStore) =>
+  s.projectsByContext[s.activeContextId] ?? EMPTY_PROJECTS;
+
+export const selectProjectsForContext = (contextId: string) => (s: AppStore) =>
+  s.projectsByContext[contextId];

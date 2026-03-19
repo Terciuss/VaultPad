@@ -21,9 +21,10 @@ type SaveStatus = "idle" | "saving" | "saved" | "error";
 interface ContentViewProps {
   openingProject?: boolean;
   onLocalSave?: () => void;
+  registerFlushSave?: (fn: () => Promise<void>) => void;
 }
 
-export function ContentView({ openingProject, onLocalSave }: ContentViewProps) {
+export function ContentView({ openingProject, onLocalSave, registerFlushSave }: ContentViewProps) {
   const { t } = useTranslation();
   const tauri = useTauri();
   const openProject = useAppStore((s) => s.openProject);
@@ -57,6 +58,27 @@ export function ContentView({ openingProject, onLocalSave }: ContentViewProps) {
   masterPasswordRef.current = masterPassword;
   const onLocalSaveRef = useRef(onLocalSave);
   onLocalSaveRef.current = onLocalSave;
+
+  const tauriRef = useRef(tauri);
+  tauriRef.current = tauri;
+
+  useEffect(() => {
+    if (!registerFlushSave) return;
+    const flush = async () => {
+      if (!dirtyRef.current || !openProjectRef.current) return;
+      saveDebounce.cancel();
+      const proj = openProjectRef.current;
+      const mp = masterPasswordRef.current;
+      const password = proj.has_custom_password ? "" : (mp ?? "");
+      await tauriRef.current.updateProject(
+        proj.id, proj.name, contentRef.current, password, proj.has_custom_password
+      );
+      dirtyRef.current = false;
+      setDirty(false);
+      onLocalSaveRef.current?.();
+    };
+    registerFlushSave(flush);
+  }, [registerFlushSave, saveDebounce]);
 
   const prevOpenProjectRef = useRef(openProject);
 

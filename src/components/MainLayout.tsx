@@ -22,6 +22,7 @@ import { useAppStore } from "../store";
 import { useTauri } from "../hooks/useTauri";
 import { useAutoLock } from "../hooks/useAutoLock";
 import { useSyncManager } from "../hooks/useSyncManager";
+import { useProjectManager } from "../hooks/useProjectManager";
 import type { ProjectListItem, DecryptedProject, ConflictInfo } from "../lib/types";
 
 const SIDEBAR_MIN = 160;
@@ -51,10 +52,13 @@ export function MainLayout() {
   const setServers = useAppStore((s) => s.setServers);
   const updateServer = useAppStore((s) => s.updateServer);
   const activeContextId = useAppStore((s) => s.activeContextId);
-  const setActiveContextId = useAppStore((s) => s.setActiveContextId);
-  const expandedServers = useAppStore((s) => s.expandedServers);
-  const toggleServerExpanded = useAppStore((s) => s.toggleServerExpanded);
-  const setServersExpanded = useAppStore((s) => s.setServersExpanded);
+
+  const {
+    registerFlushSave,
+    loadProjectsForContext,
+    switchContextSafely,
+    selectProjectFromContext,
+  } = useProjectManager();
 
   const [newProjectOpen, setNewProjectOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -81,16 +85,18 @@ export function MainLayout() {
 
   const [conflicts, setConflicts] = useState<ConflictInfo[]>([]);
 
-  const loadProjectsForSync = useCallback(async () => {
+  const loadProjectsWithUI = useCallback(async () => {
+    setLoadingProjects(true);
     try {
-      const projects = await tauri.listProjects();
-      setProjects(projects);
-    } catch {}
-  }, [tauri, setProjects]);
+      await loadProjectsForContext();
+    } finally {
+      setLoadingProjects(false);
+    }
+  }, [loadProjectsForContext]);
 
   const { notifyLocalSave } = useSyncManager({
     onConflicts: setConflicts,
-    loadProjects: loadProjectsForSync,
+    loadProjects: loadProjectsForContext,
   });
 
   const loadServers = useCallback(async () => {
@@ -119,54 +125,13 @@ export function MainLayout() {
     }
   }, [tauri, setServers]);
 
-  const dbPath = useAppStore((s) => s.dbPath);
-
-  const ensureDatabase = useCallback(async (): Promise<boolean> => {
-    const isInit = await tauri.isDatabaseInitialized();
-    if (isInit) return true;
-    if (dbPath) {
-      await tauri.initDatabase(dbPath);
-      return true;
-    }
-    const savedPath = await tauri.getSavedDbPath();
-    if (savedPath) {
-      await tauri.initDatabase(savedPath);
-      return true;
-    }
-    return false;
-  }, [tauri, dbPath]);
-
-  const loadProjects = useCallback(async () => {
-    if (!masterPassword && activeContextId === "local") return;
-    try {
-      setLoadingProjects(true);
-      const projects = await tauri.listProjects();
-      setProjects(projects);
-    } catch (e) {
-      const errMsg = String(e);
-      if (errMsg.includes("Database not initialized")) {
-        try {
-          const ok = await ensureDatabase();
-          if (ok) {
-            const projects = await tauri.listProjects();
-            setProjects(projects);
-            return;
-          }
-        } catch {}
-      }
-      console.error("Failed to load projects:", e);
-    } finally {
-      setLoadingProjects(false);
-    }
-  }, [masterPassword, activeContextId, tauri, setProjects, ensureDatabase]);
-
   useEffect(() => {
     loadServers();
   }, [loadServers]);
 
   useEffect(() => {
-    loadProjects();
-  }, [loadProjects]);
+    loadProjectsWithUI();
+  }, [masterPassword]);
 
   useEffect(() => {
     const unlisten = listen<string>("menu-action", (event) => {
@@ -178,6 +143,7 @@ export function MainLayout() {
           setNewProjectOpen(true);
           break;
         case "lock":
+          tauri.switchContext("local").catch(() => {});
           tauri.clearCachedKey().catch(() => {});
           lock();
           break;
@@ -219,27 +185,14 @@ export function MainLayout() {
     document.addEventListener("mouseup", onMouseUp);
   }, [sidebarWidth]);
 
-  const handleSelectProject = async (project: ProjectListItem) => {
-    if (project.is_password_registry) {
-      setSelectedProjectId(project.id);
-      setOpenProject(null);
-      return;
-    }
-
-    if (project.has_custom_password && !project.password_saved) {
-      setCustomPasswordProject(project);
-      return;
-    }
-
+  const handleSelectProject = async (project: ProjectListItem, contextId: string) => {
     try {
       setOpeningProjectId(project.id);
-      const password = project.has_custom_password ? "" : (masterPassword ?? "");
-      const decrypted = await tauri.getProject(project.id, password);
-      setSelectedProjectId(project.id);
-      setOpenProject(decrypted);
+      await selectProjectFromContext(project, contextId, {
+        onCustomPassword: setCustomPasswordProject,
+      });
     } catch (e) {
       console.error("Failed to open project:", e);
-      setCustomPasswordProject(project);
     } finally {
       setOpeningProjectId(null);
     }
@@ -275,7 +228,7 @@ export function MainLayout() {
     const target = editTarget;
     setEditTarget(null);
     setEditPassword(null);
-    loadProjects();
+    loadProjectsForContext();
     if (target && selectedProjectId === target.id) {
       tauri.getProject(target.id, "").then((p) => {
         setOpenProject(p);
@@ -291,7 +244,7 @@ export function MainLayout() {
       setSelectedProjectId(customPasswordProject.id);
       setOpenProject(decrypted);
       setCustomPasswordProject(null);
-      loadProjects();
+      loadProjectsForContext();
     } catch {
       alert(t("error.decryptFailed"));
     }
@@ -303,9 +256,9 @@ export function MainLayout() {
       await tauri.reorderProjects(reordered.map((p) => p.id));
     } catch (e) {
       console.error("Failed to reorder projects:", e);
-      loadProjects();
+      loadProjectsForContext();
     }
-  }, [tauri, setProjects, loadProjects]);
+  }, [tauri, setProjects, loadProjectsForContext]);
 
   const handleDeleteProject = async () => {
     if (!deleteTarget) return;
@@ -329,24 +282,12 @@ export function MainLayout() {
 
   const handleServerSwitch = async (contextId: string) => {
     try {
-      setOpenProject(null);
-      setSelectedProjectId(null);
-      setProjects([]);
-      await tauri.switchContext(contextId);
-      setActiveContextId(contextId);
-      if (contextId === "local") {
-        if (masterPassword) {
-          await tauri.cacheMasterKey(masterPassword);
-        }
-      } else {
-        setServersExpanded(true);
-        if (!expandedServers.has(contextId)) {
-          toggleServerExpanded(contextId);
-        }
-      }
-      loadProjects();
+      setLoadingProjects(true);
+      await switchContextSafely(contextId);
     } catch (e) {
       console.error("Failed to switch context:", e);
+    } finally {
+      setLoadingProjects(false);
     }
   };
 
@@ -371,7 +312,7 @@ export function MainLayout() {
       if (result.conflicts.length > 0) {
         setConflicts(result.conflicts);
       }
-      loadProjects();
+      loadProjectsForContext();
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       console.error("Sync failed:", msg);
@@ -437,7 +378,7 @@ export function MainLayout() {
   };
 
   const handleChangePwSuccess = () => {
-    loadProjects();
+    loadProjectsForContext();
   };
 
   const authServer = authServerId ? servers.find((s) => s.id === authServerId) : null;
@@ -469,7 +410,11 @@ export function MainLayout() {
         className="w-1 shrink-0 cursor-col-resize bg-gray-200 dark:bg-gray-700 hover:bg-blue-400 dark:hover:bg-blue-500 active:bg-blue-500 dark:active:bg-blue-400 transition-colors"
         onMouseDown={handleDividerMouseDown}
       />
-      <ContentView openingProject={openingProjectId !== null} onLocalSave={notifyLocalSave} />
+      <ContentView
+        openingProject={openingProjectId !== null}
+        onLocalSave={notifyLocalSave}
+        registerFlushSave={registerFlushSave}
+      />
 
       <NewProjectDialog
         open={newProjectOpen}
@@ -532,7 +477,7 @@ export function MainLayout() {
         onClose={() => setConflicts([])}
         onResolved={() => {
           setConflicts([]);
-          loadProjects();
+          loadProjectsForContext();
         }}
       />
 

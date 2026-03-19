@@ -244,7 +244,7 @@
   "sync.result": "Синхронизация: {{uploaded}} загружено, {{downloaded}} скачано",
   "sync.conflicts": "Обнаружено конфликтов: {{count}}",
 
-  "localSection.title": "Локальное хранилище",
+  "localSection.title": "Локально",
 
   "admin.title": "Администрирование сервера",
   "admin.users": "Пользователи",
@@ -335,6 +335,13 @@
   "changeCredentials.errorEmailTaken": "Email уже занят",
   "changeCredentials.success": "Данные входа обновлены",
   "changeCredentials.button": "Сменить данные входа",
+
+  "serverMenu.changeMasterPassword": "Сменить мастер-пароль",
+  "serverMenu.changeCredentials": "Сменить учётные данные",
+  "serverMenu.adminPanel": "Админ-панель",
+  "serverMenu.removeServer": "Удалить сервер",
+
+  "servers.notLoaded": "Переключитесь для загрузки",
 
   "sync.syncing": "Синхронизация...",
   "sync.ok": "Синхронизировано",

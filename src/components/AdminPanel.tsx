@@ -4,7 +4,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { useTauri, type AdminUser, type UserShare } from "../hooks/useTauri";
-import { useAppStore } from "../store";
+import { useAppStore, selectActiveProjects } from "../store";
 
 interface AdminPanelProps {
   open: boolean;
@@ -25,7 +25,7 @@ interface UserCardState {
 export function AdminPanel({ open, onClose }: AdminPanelProps) {
   const { t } = useTranslation();
   const tauri = useTauri();
-  const projects = useAppStore((s) => s.projects);
+  const projects = useAppStore(selectActiveProjects);
 
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [loading, setLoading] = useState(false);

@@ -244,7 +244,7 @@
   "sync.result": "Sync: {{uploaded}} uploaded, {{downloaded}} downloaded",
   "sync.conflicts": "{{count}} conflict(s) detected",
 
-  "localSection.title": "Local Storage",
+  "localSection.title": "Local",
 
   "admin.title": "Server Administration",
   "admin.users": "Users",
@@ -335,6 +335,13 @@
   "changeCredentials.errorEmailTaken": "Email already taken",
   "changeCredentials.success": "Credentials updated successfully",
   "changeCredentials.button": "Change credentials",
+
+  "serverMenu.changeMasterPassword": "Change master password",
+  "serverMenu.changeCredentials": "Change credentials",
+  "serverMenu.adminPanel": "Admin panel",
+  "serverMenu.removeServer": "Remove server",
+
+  "servers.notLoaded": "Switch to load files",
 
   "sync.syncing": "Syncing...",
   "sync.ok": "Synced",
