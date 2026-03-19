@@ -416,7 +416,7 @@ export function SettingsPanel({ open: isOpen, onClose }: SettingsPanelProps) {
               </div>
 
               <button
-                onClick={() => { tauri.clearCachedKey().catch(() => {}); lock(); }}
+                onClick={() => { tauri.switchContext("local").then(() => lock()).catch(() => lock()); }}
                 className="w-full py-2 px-4 text-sm bg-red-100 dark:bg-red-900/30 hover:bg-red-200 dark:hover:bg-red-900/50 text-red-700 dark:text-red-300 rounded-lg transition-colors"
               >
                 {t("settings.lockNow")}

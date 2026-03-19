@@ -207,6 +207,7 @@ export const useAppStore = create<AppStore>((set) => ({
       projectsByContext: {},
       selectedProjectId: null,
       pendingAddServer: null,
+      activeContextId: "local",
       view: state.hasPinCode ? "pin-unlock" : "unlock",
     })),
 }));

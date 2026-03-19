@@ -2,10 +2,11 @@
 // Licensed under the PolyForm Noncommercial License 1.0.0
 
 import { useEffect, useCallback } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import { useAppStore } from "../store";
+import { useTauri } from "./useTauri";
 
 export function useAutoLock() {
+  const tauri = useTauri();
   const lock = useAppStore((s) => s.lock);
   const autoLockMinutes = useAppStore((s) => s.autoLockMinutes);
   const lastActivity = useAppStore((s) => s.lastActivity);
@@ -17,9 +18,8 @@ export function useAutoLock() {
   }, [touchActivity]);
 
   const doLock = useCallback(() => {
-    invoke("clear_cached_key").catch(() => {});
-    lock();
-  }, [lock]);
+    tauri.switchContext("local").then(() => lock()).catch(() => lock());
+  }, [tauri, lock]);
 
   useEffect(() => {
     if (view !== "main") return;

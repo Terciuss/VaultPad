@@ -163,9 +163,7 @@ export function MainLayout() {
           setNewProjectOpen(true);
           break;
         case "lock":
-          tauri.switchContext("local").catch(() => {});
-          tauri.clearCachedKey().catch(() => {});
-          lock();
+          tauri.switchContext("local").then(() => lock()).catch(() => lock());
           break;
         case "add-server":
           setAddServerOpen(true);

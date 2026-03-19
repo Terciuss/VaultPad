@@ -8,6 +8,7 @@ use uuid::Uuid;
 use zeroize::Zeroize;
 
 use crate::crypto;
+use crate::keychain;
 use crate::server_config::{self, ServerConfig};
 use crate::storage::local::LocalStorage;
 use crate::storage::StorageProvider;
@@ -197,6 +198,17 @@ pub fn switch_context(state: State<AppState>, context_id: String) -> Result<(), 
     if context_id == "local" {
         let mut active = state.active_context.lock().map_err(|e| e.to_string())?;
         *active = "local".to_string();
+        drop(active);
+
+        if let Some(db_path) = keychain::get("db-path") {
+            if let Ok(storage) = LocalStorage::new(&db_path) {
+                let mut s = state.storage.lock().map_err(|e| e.to_string())?;
+                *s = Some(Box::new(storage));
+                drop(s);
+                let mut p = state.db_path.lock().map_err(|e| e.to_string())?;
+                *p = Some(db_path);
+            }
+        }
         return Ok(());
     }
 
