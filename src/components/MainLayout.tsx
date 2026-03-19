@@ -78,6 +78,9 @@ export function MainLayout() {
   const [removingServer, setRemovingServer] = useState<{ id: string; name: string } | null>(null);
   const [credentialsServerId, setCredentialsServerId] = useState<string | null>(null);
 
+  const pendingAddServer = useAppStore((s) => s.pendingAddServer);
+  const setPendingAddServer = useAppStore((s) => s.setPendingAddServer);
+
   const [sidebarWidth, setSidebarWidth] = useState(getInitialSidebarWidth);
   const dragging = useRef(false);
 
@@ -132,6 +135,22 @@ export function MainLayout() {
   useEffect(() => {
     loadProjectsWithUI();
   }, [masterPassword]);
+
+  // Deep link при разблокированном приложении: открываем диалог сразу.
+  useEffect(() => {
+    const unlisten = listen<{ name: string; url: string }>("deep-link-add-server", (event) => {
+      setPendingAddServer(event.payload);
+      setAddServerOpen(true);
+    });
+    return () => { unlisten.then((fn) => fn()); };
+  }, [setPendingAddServer]);
+
+  // Открыть диалог при появлении pendingAddServer (в т.ч. после разблокировки, если ссылку открыли при заблокированном приложении).
+  useEffect(() => {
+    if (pendingAddServer && !addServerOpen) {
+      setAddServerOpen(true);
+    }
+  }, [pendingAddServer, addServerOpen]);
 
   useEffect(() => {
     const unlisten = listen<string>("menu-action", (event) => {
@@ -452,6 +471,8 @@ export function MainLayout() {
         open={addServerOpen}
         onClose={() => setAddServerOpen(false)}
         onAdded={loadServers}
+        prefill={pendingAddServer}
+        onClearPrefill={() => setPendingAddServer(null)}
       />
 
       <ServerAuthDialog

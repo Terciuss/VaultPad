@@ -6,6 +6,8 @@ import { useTranslation } from "react-i18next";
 
 interface ServerDropdownMenuProps {
   isAdmin: boolean;
+  serverName: string;
+  serverUrl: string;
   onChangeMasterPassword: () => void;
   onChangeCredentials: () => void;
   onOpenAdminPanel: () => void;
@@ -14,6 +16,8 @@ interface ServerDropdownMenuProps {
 
 export function ServerDropdownMenu({
   isAdmin,
+  serverName,
+  serverUrl,
   onChangeMasterPassword,
   onChangeCredentials,
   onOpenAdminPanel,
@@ -21,6 +25,7 @@ export function ServerDropdownMenu({
 }: ServerDropdownMenuProps) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -37,6 +42,15 @@ export function ServerDropdownMenu({
   const handleAction = (fn: () => void) => {
     setOpen(false);
     fn();
+  };
+
+  const handleCopyDeepLink = async () => {
+    const link = `vaultpad://add-server?name=${encodeURIComponent(serverName)}&url=${encodeURIComponent(serverUrl)}`;
+    try {
+      await navigator.clipboard.writeText(link);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch { /* clipboard not available */ }
   };
 
   return (
@@ -84,6 +98,15 @@ export function ServerDropdownMenu({
               {t("serverMenu.adminPanel")}
             </button>
           )}
+          <button
+            onClick={handleCopyDeepLink}
+            className="w-full text-left px-3 py-1.5 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
+          >
+            <svg className="w-3.5 h-3.5 text-blue-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+            </svg>
+            {copied ? t("serverMenu.copied") : t("serverMenu.copyDeepLink")}
+          </button>
           <div className="border-t border-gray-200 dark:border-gray-700 my-1" />
           <button
             onClick={() => handleAction(onRemove)}

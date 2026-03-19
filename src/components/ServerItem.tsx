@@ -12,6 +12,7 @@ import type { ProjectListItem, ServerSyncStatus } from "../lib/types";
 interface ServerItemServer {
   id: string;
   name: string;
+  url: string;
   is_authenticated: boolean;
   has_master_password: boolean;
   is_admin: boolean;
@@ -124,6 +125,8 @@ export function ServerItem({
           {isReady && (
             <ServerDropdownMenu
               isAdmin={server.is_admin}
+              serverName={server.name}
+              serverUrl={server.url}
               onChangeMasterPassword={() => onChangeMasterPassword(server.id)}
               onChangeCredentials={() => onChangeCredentials(server.id)}
               onOpenAdminPanel={onOpenAdminPanel}

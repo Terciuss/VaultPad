@@ -17,6 +17,31 @@ use tauri::Emitter;
 use tauri::Manager;
 use tauri::menu::{MenuBuilder, SubmenuBuilder, MenuItem, PredefinedMenuItem};
 
+#[derive(Clone, serde::Serialize)]
+struct DeepLinkAddServer {
+    name: String,
+    url: String,
+}
+
+fn parse_and_emit_deep_link(app: &tauri::AppHandle, urls: Vec<url::Url>) {
+    for u in urls {
+        if u.host_str() == Some("add-server") || u.path().trim_start_matches('/') == "add-server" {
+            let mut name = String::new();
+            let mut server_url = String::new();
+            for (k, v) in u.query_pairs() {
+                match k.as_ref() {
+                    "name" => name = v.to_string(),
+                    "url" => server_url = v.to_string(),
+                    _ => {}
+                }
+            }
+            if !server_url.is_empty() {
+                let _ = app.emit("deep-link-add-server", DeepLinkAddServer { name, url: server_url });
+            }
+        }
+    }
+}
+
 pub struct AppState {
     pub storage: Mutex<Option<Box<dyn StorageProvider>>>,
     pub db_path: Mutex<Option<String>>,
@@ -29,7 +54,23 @@ pub struct AppState {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let mut builder = tauri::Builder::default();
+
+    #[cfg(desktop)]
+    {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.set_focus();
+            }
+            let urls: Vec<url::Url> = argv.iter().filter_map(|a| url::Url::parse(a).ok()).collect();
+            if !urls.is_empty() {
+                parse_and_emit_deep_link(app, urls);
+            }
+        }));
+    }
+
+    builder
+        .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
@@ -67,6 +108,12 @@ pub fn run() {
                 .build()?;
 
             app.set_menu(menu)?;
+
+            #[cfg(desktop)]
+            {
+                use tauri_plugin_deep_link::DeepLinkExt;
+                let _ = app.deep_link().register("vaultpad");
+            }
 
             if let Some(db_path) = keychain::get("db-path") {
                 if let Ok(storage) = LocalStorage::new(&db_path) {
@@ -153,6 +200,7 @@ pub fn run() {
             commands::settings::get_db_folder,
             commands::settings::change_db_folder,
             commands::settings::change_master_password,
+            commands::settings::get_default_db_folder,
             commands::servers::change_server_master_password,
             commands::servers::srv_update_profile,
             commands::backups::list_project_backups,

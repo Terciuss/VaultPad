@@ -461,3 +461,9 @@ pub fn change_master_password(
 
     Ok(count)
 }
+
+#[tauri::command]
+pub fn get_default_db_folder() -> Result<String, String> {
+    let home = dirs::home_dir().ok_or("Cannot determine home directory")?;
+    Ok(home.join(".vaultpad").to_string_lossy().to_string())
+}

@@ -220,6 +220,9 @@ export function useTauri() {
 
     srvUpdateProfile: (serverId: string, currentPassword: string, newEmail: string, newPassword: string) =>
       invoke<void>("srv_update_profile", { serverId, currentPassword, newEmail, newPassword }),
+
+    getDefaultDbFolder: () =>
+      invoke<string>("get_default_db_folder"),
   }), []);
 }
 

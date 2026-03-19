@@ -116,6 +116,8 @@ pub fn add_server(name: String, url: String, db_folder: String) -> Result<Server
     let base_name = format!("{}_{}", slug, short_id);
     let folder = db_folder.trim_end_matches('/');
 
+    std::fs::create_dir_all(folder).map_err(|e| format!("Cannot create db folder: {e}"))?;
+
     let mut db_path = format!("{}/{}.db", folder, base_name);
     let mut suffix = 2u32;
     while std::path::Path::new(&db_path).exists() {

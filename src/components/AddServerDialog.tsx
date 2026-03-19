@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Pavel <mr.terks@yandex.ru>
 // Licensed under the PolyForm Noncommercial License 1.0.0
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useTauri } from "../hooks/useTauri";
@@ -10,9 +10,11 @@ interface AddServerDialogProps {
   open: boolean;
   onClose: () => void;
   onAdded: () => void;
+  prefill?: { name: string; url: string } | null;
+  onClearPrefill?: () => void;
 }
 
-export function AddServerDialog({ open: isOpen, onClose, onAdded }: AddServerDialogProps) {
+export function AddServerDialog({ open: isOpen, onClose, onAdded, prefill, onClearPrefill }: AddServerDialogProps) {
   const { t } = useTranslation();
   const tauri = useTauri();
 
@@ -21,6 +23,20 @@ export function AddServerDialog({ open: isOpen, onClose, onAdded }: AddServerDia
   const [dbFolder, setDbFolder] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (isOpen) {
+      if (prefill) {
+        setName(prefill.name);
+        setUrl(prefill.url || "http://localhost:8080");
+      }
+      if (!dbFolder) {
+        tauri.getDefaultDbFolder().then((folder) => {
+          setDbFolder((prev) => prev || folder);
+        }).catch(() => {});
+      }
+    }
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -54,6 +70,7 @@ export function AddServerDialog({ open: isOpen, onClose, onAdded }: AddServerDia
       setName("");
       setUrl("http://localhost:8080");
       setDbFolder("");
+      onClearPrefill?.();
       onAdded();
       onClose();
     } catch (e) {
@@ -70,7 +87,7 @@ export function AddServerDialog({ open: isOpen, onClose, onAdded }: AddServerDia
           <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
             {t("addServer.title")}
           </h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
+          <button onClick={() => { onClearPrefill?.(); onClose(); }} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
@@ -129,7 +146,7 @@ export function AddServerDialog({ open: isOpen, onClose, onAdded }: AddServerDia
           <div className="flex justify-end gap-2 pt-2">
             <button
               type="button"
-              onClick={onClose}
+              onClick={() => { onClearPrefill?.(); onClose(); }}
               className="px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
             >
               {t("addServer.cancel")}

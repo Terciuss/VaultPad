@@ -339,6 +339,8 @@
   "serverMenu.changeMasterPassword": "Change master password",
   "serverMenu.changeCredentials": "Change credentials",
   "serverMenu.adminPanel": "Admin panel",
+  "serverMenu.copyDeepLink": "Copy link",
+  "serverMenu.copied": "Copied!",
   "serverMenu.removeServer": "Remove server",
 
   "servers.notLoaded": "Switch to load files",

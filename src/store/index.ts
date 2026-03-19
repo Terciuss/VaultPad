@@ -85,6 +85,9 @@ interface AppStore {
   serversExpanded: boolean;
   setServersExpanded: (v: boolean) => void;
 
+  pendingAddServer: { name: string; url: string } | null;
+  setPendingAddServer: (data: { name: string; url: string } | null) => void;
+
   lock: () => void;
 }
 
@@ -194,12 +197,16 @@ export const useAppStore = create<AppStore>((set) => ({
   serversExpanded: true,
   setServersExpanded: (v) => set({ serversExpanded: v }),
 
+  pendingAddServer: null,
+  setPendingAddServer: (data) => set({ pendingAddServer: data }),
+
   lock: () =>
     set((state) => ({
       masterPassword: null,
       openProject: null,
       projectsByContext: {},
       selectedProjectId: null,
+      pendingAddServer: null,
       view: state.hasPinCode ? "pin-unlock" : "unlock",
     })),
 }));

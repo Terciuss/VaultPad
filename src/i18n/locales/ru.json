@@ -339,6 +339,8 @@
   "serverMenu.changeMasterPassword": "Сменить мастер-пароль",
   "serverMenu.changeCredentials": "Сменить учётные данные",
   "serverMenu.adminPanel": "Админ-панель",
+  "serverMenu.copyDeepLink": "Скопировать ссылку",
+  "serverMenu.copied": "Скопировано!",
   "serverMenu.removeServer": "Удалить сервер",
 
   "servers.notLoaded": "Переключитесь для загрузки",

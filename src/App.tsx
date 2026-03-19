@@ -2,6 +2,8 @@
 // Licensed under the PolyForm Noncommercial License 1.0.0
 
 import { useEffect } from "react";
+import { listen } from "@tauri-apps/api/event";
+import { getCurrent } from "@tauri-apps/plugin-deep-link";
 import { useAppStore } from "./store";
 import { useTheme } from "./hooks/useTheme";
 import { useTauri } from "./hooks/useTauri";
@@ -23,8 +25,51 @@ function App() {
   const setHasSavedSession = useAppStore((s) => s.setHasSavedSession);
   const setHasPinCode = useAppStore((s) => s.setHasPinCode);
   const touchActivity = useAppStore((s) => s.touchActivity);
+  const setPendingAddServer = useAppStore((s) => s.setPendingAddServer);
   const tauri = useTauri();
   useTheme();
+
+  function parseAddServerFromUrls(urls: string[] | null): void {
+    if (!urls?.length) return;
+    for (const raw of urls) {
+      try {
+        const u = new URL(raw);
+        const path = u.pathname.replace(/^\/+/, "") || u.hostname;
+        if (path === "add-server") {
+          const name = u.searchParams.get("name") ?? "";
+          const serverUrl = u.searchParams.get("url") ?? "";
+          if (serverUrl) {
+            setPendingAddServer({ name, url: serverUrl });
+            break;
+          }
+        }
+      } catch {
+        // ignore invalid URL
+      }
+    }
+  }
+
+  // Холодный старт: URL при открытии приложения по ссылке.
+  useEffect(() => {
+    getCurrent().then(parseAddServerFromUrls).catch(() => {});
+  }, [setPendingAddServer]);
+
+  // Уже запущено (macOS и др.): URL приходит через deep-link://new-url (плагин), не через single-instance.
+  useEffect(() => {
+    const unlisten = listen<string[] | string>("deep-link://new-url", (event) => {
+      const urls = Array.isArray(event.payload) ? event.payload : [event.payload];
+      parseAddServerFromUrls(urls);
+    });
+    return () => { unlisten.then((fn) => fn()); };
+  }, [setPendingAddServer]);
+
+  // Событие от бэкенда (single-instance на Windows/Linux, когда запускается второй процесс с URL).
+  useEffect(() => {
+    const unlisten = listen<{ name: string; url: string }>("deep-link-add-server", (event) => {
+      setPendingAddServer(event.payload);
+    });
+    return () => { unlisten.then((fn) => fn()); };
+  }, [setPendingAddServer]);
 
   useEffect(() => {
     let cancelled = false;
